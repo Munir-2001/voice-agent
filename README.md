@@ -1,36 +1,54 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Halo — AI Calling Console
 
-## Getting Started
+Front-end + backend scaffold for the outbound AI voice-agent system described in
+`../Dev-Plan.md`. Built on the minimal-cost stack: **Next.js (App Router, SSR) +
+shadcn/ui + Supabase + ElevenLabs Agents + Twilio + Groq**.
 
-First, run the development server:
+## Run it
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev        # http://localhost:3000  (redirects to /overview)
+npm run build      # production build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+No environment variables are needed to view the UI — it runs on sample data.
+Copy `.env.example` → `.env.local` and fill it in to wire the live services.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## What's real vs. mocked
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+**Real (works now):**
+- Full UI: login, overview, interested leads, all-leads table with filters,
+  call detail with transcript + recording player, CSV upload with live
+  client-side validation, settings — light & dark themes.
+- CSV parsing + E.164 validation + dedupe (`src/lib/phone.ts`, upload dropzone).
+- Timezone-from-area-code + calling-window logic (`src/lib/timezone.ts`).
+- Transcript classification with an opt-out keyword guardrail (`src/lib/classify.ts`).
+- API route structure: `/api/webhook`, `/api/campaign`, `/api/leads/upload`,
+  `/api/dial-tick` — with HMAC verification, service-role writes, and the
+  ElevenLabs outbound-call trigger.
 
-## Learn More
+**Mocked (needs wiring):**
+- Data comes from `src/lib/sample-data.ts`. Replace the page reads with Supabase
+  queries (`src/lib/supabase/server.ts` is ready).
+- Auth is a demo form that routes to `/overview`. Wire Supabase Auth + middleware.
+- The campaign toggle, "mark contacted", upload import, and settings save show
+  toasts; connect them to the API routes.
 
-To learn more about Next.js, take a look at the following resources:
+## Where things are
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Area | Path |
+|---|---|
+| Design tokens / theme | `src/app/globals.css` |
+| Pages | `src/app/(dashboard)/*`, `src/app/login` |
+| API routes | `src/app/api/*` |
+| Domain types | `src/lib/types.ts` |
+| Sample data | `src/lib/sample-data.ts` |
+| Helpers | `src/lib/{phone,timezone,classify,format,status}.ts` |
+| Supabase clients | `src/lib/supabase/{client,server}.ts` |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Build order
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Follow `../Dev-Manual.md`. This repo covers Phase 2 (app shell, login, upload)
+and the structure for Phases 4–6 (scheduler, webhook, dashboard). Next steps:
+create the Supabase schema (Phase 1), then swap sample data for live queries.
