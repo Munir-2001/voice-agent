@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Halo — AI Calling Console",
+  title: "Rose — AI Calling Console",
   description:
     "Outbound AI voice agent for business-financing lead qualification.",
 };

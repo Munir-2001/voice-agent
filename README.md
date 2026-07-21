@@ -1,4 +1,4 @@
-# Halo — AI Calling Console
+# Rose — AI Calling Console
 
 Front-end + backend scaffold for the outbound AI voice-agent system described in
 `../Dev-Plan.md`. Built on the minimal-cost stack: **Next.js (App Router, SSR) +

@@ -32,7 +32,7 @@ export default function LoginPage() {
               </g>
             </svg>
           </span>
-          <span className="text-[15px] font-semibold tracking-tight">Halo</span>
+          <span className="text-[15px] font-semibold tracking-tight">Rose</span>
         </div>
 
         <FadeIn className="relative max-w-md space-y-6">
@@ -44,7 +44,7 @@ export default function LoginPage() {
             Your AI loan specialist that never stops prospecting.
           </h1>
           <p className="text-white/75 leading-relaxed">
-            Halo calls your lead lists, has a natural conversation, qualifies
+            Rose calls your lead lists, has a natural conversation, qualifies
             interest, and hands warm prospects straight to your team — every
             call recorded, transcribed, and scored.
           </p>

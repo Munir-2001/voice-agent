@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-/** Halo wordmark with a small waveform glyph — nods to the voice product. */
+/** Rose wordmark with a small waveform glyph — nods to the voice product. */
 export function Brand({ className }: { className?: string }) {
   return (
     <div className={cn("flex items-center gap-2.5", className)}>
@@ -16,7 +16,7 @@ export function Brand({ className }: { className?: string }) {
         </svg>
       </span>
       <div className="flex flex-col leading-none">
-        <span className="text-[15px] font-semibold tracking-tight">Halo</span>
+        <span className="text-[15px] font-semibold tracking-tight">Rose</span>
         <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           Calling Console
         </span>
