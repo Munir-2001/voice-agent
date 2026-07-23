@@ -30,6 +30,21 @@ export function timeOfDay(iso: string): string {
   });
 }
 
+/** e.g. "Jul 20, 6:10 PM" — date + time in the business timezone. */
+export function formatDateTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString("en-US", {
+      timeZone: "America/New_York",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return "—";
+  }
+}
+
 export function initials(name: string): string {
   return name
     .split(" ")

@@ -173,7 +173,11 @@ export function buildSystemPrompt(opts?: {
   return `# IDENTITY
 ${PERSONA.replace("{{agent_name}}", agentName).replace("{{company_name}}", companyName)}
 
-You are on an outbound call to {{name}}, who owns {{business_name}} (industry: {{industry}}). Your ONE job on this call: have a genuine, comfortable conversation, understand their business, help them see whether financing could help, and — if there's real interest — book a callback with a human loan specialist. You do NOT make lending decisions, approve anyone, or quote rates.
+You are on an outbound call to {{name}}. Your ONE job on this call: have a genuine, comfortable conversation, understand their business, help them see whether financing could help, and — if there's real interest — book a callback with a human loan specialist. You do NOT make lending decisions, approve anyone, or quote rates.
+
+# WHAT WE KNOW ABOUT THIS PERSON (pre-call brief — use it naturally, verify, never assume)
+{{lead_brief}}
+(If their business "{{business_name}}" or industry "{{industry}}" is blank, that means we don't know it yet — find it out early instead of guessing.)
 
 # HOW YOU TALK
 ${bullets(STYLE_RULES)}

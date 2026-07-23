@@ -2,9 +2,12 @@ import { PageHeader } from "@/components/page-header";
 import { SettingsForm } from "@/components/settings-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FadeIn } from "@/components/motion";
-import { campaignSettings } from "@/lib/sample-data";
+import { getCampaignSettings } from "@/lib/data";
 
-export default function SettingsPage() {
+export const dynamic = "force-dynamic";
+
+export default async function SettingsPage() {
+  const settings = await getCampaignSettings();
   return (
     <div className="mx-auto max-w-2xl space-y-8">
       <PageHeader
@@ -12,7 +15,7 @@ export default function SettingsPage() {
         description="Campaign guardrails and compliance controls."
       />
       <FadeIn>
-        <SettingsForm settings={campaignSettings} />
+        <SettingsForm settings={settings} />
       </FadeIn>
       <FadeIn delay={0.1}>
         <Card className="border-dashed">

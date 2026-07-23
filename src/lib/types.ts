@@ -25,12 +25,15 @@ export interface Lead {
   name: string;
   businessName: string;
   phone: string; // E.164
+  email?: string | null;
   industry: string;
   state: string;
   timezone: string; // IANA, e.g. America/New_York
   status: LeadStatus;
   attempts: number;
   lastCalledAt: string | null; // ISO
+  callbackAt?: string | null; // ISO
+  contactedAt?: string | null; // ISO — set when the human calls them back
   consentSource: string | null;
   uploadedAt: string; // ISO
 }
@@ -57,6 +60,7 @@ export interface TranscriptTurn {
 }
 
 export interface CampaignSettings {
+  name: string;
   active: boolean;
   windowStart: string; // "09:00"
   windowEnd: string; // "18:00"

@@ -66,10 +66,20 @@ export function isSameOrigin(request: Request): boolean {
 }
 
 // ── Client IP (behind Vercel/proxies) ───────────────────────────────────────
+// Used only as a rate-limit key, so it must be hard to spoof. The LEFTMOST
+// X-Forwarded-For entry is client-supplied and trivially forged (letting an
+// attacker rotate keys to dodge the limiter), so prefer the platform-set
+// `x-real-ip`, then fall back to the RIGHTMOST XFF hop (appended by the trusted
+// proxy), never the leftmost.
 export function clientIp(request: Request): string {
+  const real = request.headers.get("x-real-ip");
+  if (real) return real.trim();
   const fwd = request.headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0].trim();
-  return request.headers.get("x-real-ip") ?? "unknown";
+  if (fwd) {
+    const hops = fwd.split(",").map((h) => h.trim()).filter(Boolean);
+    if (hops.length) return hops[hops.length - 1];
+  }
+  return "unknown";
 }
 
 // ── Generic error response (never leak internals to the client) ─────────────

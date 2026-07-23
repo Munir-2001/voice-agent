@@ -8,7 +8,6 @@ import {
   Users,
   Upload,
   Settings,
-  PhoneCall,
   Bot,
 } from "lucide-react";
 import {
@@ -25,10 +24,12 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { Brand } from "@/components/brand";
+import { SignOutButton } from "@/components/sign-out-button";
+import { initials } from "@/lib/format";
 
 const NAV = [
   { title: "Overview", href: "/overview", icon: LayoutDashboard },
-  { title: "Interested", href: "/interested", icon: Sparkles, badge: "4" },
+  { title: "Interested", href: "/interested", icon: Sparkles },
   { title: "All leads", href: "/leads", icon: Users },
   { title: "Upload", href: "/upload", icon: Upload },
 ];
@@ -38,10 +39,19 @@ const MANAGE = [
   { title: "Settings", href: "/settings", icon: Settings },
 ];
 
-export function AppSidebar() {
+export function AppSidebar({
+  interestedCount = 0,
+  userEmail = "",
+}: {
+  interestedCount?: number;
+  userEmail?: string;
+}) {
   const pathname = usePathname();
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(href + "/");
+  // Only the Interested item carries a badge, and only when leads are waiting.
+  const badgeFor = (href: string) =>
+    href === "/interested" && interestedCount > 0 ? String(interestedCount) : null;
 
   return (
     <Sidebar variant="inset">
@@ -63,9 +73,9 @@ export function AppSidebar() {
                     <item.icon className="size-4" />
                     <span>{item.title}</span>
                   </SidebarMenuButton>
-                  {item.badge && (
+                  {badgeFor(item.href) && (
                     <SidebarMenuBadge className="bg-success-muted text-success-ink">
-                      {item.badge}
+                      {badgeFor(item.href)}
                     </SidebarMenuBadge>
                   )}
                 </SidebarMenuItem>
@@ -93,19 +103,25 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="p-3">
+      <SidebarFooter className="gap-1 p-3">
         <div className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-semibold">
-            MC
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-semibold uppercase">
+            {initials(userEmail.split("@")[0].replace(/[._-]/g, " ")) || "•"}
           </span>
           <div className="flex min-w-0 flex-col leading-tight">
-            <span className="truncate text-sm font-medium">Meridian Capital</span>
+            <span className="truncate text-sm font-medium">
+              {userEmail || "Signed in"}
+            </span>
             <span className="truncate text-xs text-muted-foreground">
               Client workspace
             </span>
           </div>
-          <PhoneCall className="ml-auto size-4 text-muted-foreground" />
         </div>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SignOutButton />
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
   );

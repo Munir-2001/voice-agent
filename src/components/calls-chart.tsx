@@ -10,25 +10,18 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 
-const data = [
-  { day: "Jul 2", dials: 24, interested: 2 },
-  { day: "Jul 3", dials: 28, interested: 3 },
-  { day: "Jul 7", dials: 26, interested: 2 },
-  { day: "Jul 8", dials: 30, interested: 4 },
-  { day: "Jul 9", dials: 27, interested: 3 },
-  { day: "Jul 10", dials: 29, interested: 5 },
-  { day: "Jul 11", dials: 25, interested: 2 },
-  { day: "Jul 14", dials: 30, interested: 4 },
-  { day: "Jul 15", dials: 28, interested: 3 },
-  { day: "Jul 16", dials: 19, interested: 4 },
-];
-
 const config = {
   dials: { label: "Dials", color: "var(--chart-1)" },
   interested: { label: "Interested", color: "var(--chart-3)" },
 } satisfies ChartConfig;
 
-export function CallsChart() {
+export interface DayPoint {
+  day: string;
+  dials: number;
+  interested: number;
+}
+
+export function CallsChart({ data }: { data: DayPoint[] }) {
   return (
     <ChartContainer config={config} className="h-[240px] w-full">
       <BarChart data={data} barGap={4} margin={{ left: -16, right: 8, top: 8 }}>

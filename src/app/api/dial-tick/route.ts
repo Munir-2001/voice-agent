@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { isWithinCallingWindow } from "@/lib/timezone";
 import { playbookForIndustry } from "@/lib/agent/industry-playbooks";
+import { researchLead } from "@/lib/agent/research";
 import { hasValidCronSecret, clientIp, apiError } from "@/lib/security";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -68,6 +69,7 @@ export async function POST(request: Request) {
     name: string;
     business_name: string;
     industry: string;
+    email: string | null;
     phone: string;
     timezone: string;
     attempts: number;
@@ -111,10 +113,19 @@ async function placeOutboundCall(
     name: string;
     business_name: string;
     industry: string;
+    email: string | null;
     phone: string;
   },
   fromNumber: string,
 ) {
+  // Per-lead pre-call brief so the agent opens with context, not a blank.
+  const { brief } = researchLead({
+    name: lead.name,
+    email: lead.email,
+    businessName: lead.business_name,
+    industry: lead.industry,
+  });
+
   const res = await fetch(
     "https://api.elevenlabs.io/v1/convai/twilio/outbound-call",
     {
@@ -136,6 +147,7 @@ async function placeOutboundCall(
             business_name: lead.business_name,
             industry: lead.industry,
             industry_hook: playbookForIndustry(lead.industry)?.valueHook ?? "",
+            lead_brief: brief,
           },
         },
       }),

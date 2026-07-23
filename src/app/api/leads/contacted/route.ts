@@ -6,14 +6,12 @@ import { isSameOrigin, clientIp, apiError } from "@/lib/security";
 import { rateLimit } from "@/lib/rate-limit";
 import { getSessionUser } from "@/lib/auth";
 
-const Body = z.object({ active: z.boolean() });
+const Body = z.object({ leadId: z.string().uuid() });
 
-// Toggle the campaign on/off. The dial-tick scheduler reads `active` before
-// placing any calls, so this is the master switch behind the dashboard toggle.
-// Gated by same-origin + a signed-in session; writes run via the service client.
+// Marks a lead as contacted (the human called them back). Stamps contacted_at.
 export async function POST(request: Request) {
   if (!isSameOrigin(request)) return apiError(403, "Forbidden");
-  const rl = rateLimit(`campaign:${clientIp(request)}`, 30, 60_000);
+  const rl = rateLimit(`contacted:${clientIp(request)}`, 60, 60_000);
   if (!rl.ok) return apiError(429, "Too many requests");
   if (!(await getSessionUser())) return apiError(401, "Unauthorized");
   if (!isSupabaseConfigured()) return apiError(503, "Database isn't configured yet.");
@@ -23,13 +21,15 @@ export async function POST(request: Request) {
 
   const supabase = createServiceClient();
   const { error } = await supabase
-    .from("campaign_settings")
-    .update({ active: parsed.data.active })
-    .eq("id", 1);
+    .from("leads")
+    .update({ contacted_at: new Date().toISOString() })
+    .eq("id", parsed.data.leadId);
 
   if (error) {
-    console.error("campaign update failed:", error);
-    return apiError(500, "Could not update the campaign");
+    // Full detail (often: contacted_at column missing) goes to the server log;
+    // the client gets a generic message so we don't leak schema internals.
+    console.error("mark-contacted failed:", error);
+    return apiError(500, "Could not mark contacted");
   }
-  return NextResponse.json({ ok: true, active: parsed.data.active });
+  return NextResponse.json({ ok: true });
 }

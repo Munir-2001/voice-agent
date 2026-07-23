@@ -9,6 +9,7 @@ const DAY = (d: number, h = 10) =>
   new Date(2026, 6, d, h, 0, 0).toISOString();
 
 export const campaignSettings: CampaignSettings = {
+  name: "Business Financing — Q3 Outbound",
   active: true,
   windowStart: "09:00",
   windowEnd: "18:00",

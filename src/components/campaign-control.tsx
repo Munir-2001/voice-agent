@@ -13,18 +13,33 @@ export function CampaignControl() {
 
   async function toggle(next: boolean) {
     setPending(true);
-    setActive(next);
-    // Real wiring: await fetch("/api/campaign", { method: "POST", body: JSON.stringify({ active: next }) })
-    await new Promise((r) => setTimeout(r, 300));
-    setPending(false);
-    toast[next ? "success" : "message"](
-      next ? "Campaign activated" : "Campaign paused",
-      {
-        description: next
-          ? "The agent will place calls during business hours."
-          : "No new calls will be placed until reactivated.",
-      },
-    );
+    setActive(next); // optimistic
+    try {
+      const res = await fetch("/api/campaign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active: next }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setActive(!next); // revert
+        toast.error(data.error ?? "Could not update the campaign");
+        return;
+      }
+      toast[next ? "success" : "message"](
+        next ? "Campaign activated" : "Campaign paused",
+        {
+          description: next
+            ? "The agent will place calls during business hours."
+            : "No new calls will be placed until reactivated.",
+        },
+      );
+    } catch {
+      setActive(!next);
+      toast.error("Network error — could not reach the server");
+    } finally {
+      setPending(false);
+    }
   }
 
   return (

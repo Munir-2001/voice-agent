@@ -17,10 +17,15 @@ import { LeadStatusBadge } from "@/components/status-badge";
 import { formatPhone, relativeTime } from "@/lib/format";
 import { LEAD_STATUS_META } from "@/lib/status";
 import type { Lead, LeadStatus } from "@/lib/types";
-import { getCallForLead } from "@/lib/sample-data";
 import { cn } from "@/lib/utils";
 
-export function LeadsTable({ leads }: { leads: Lead[] }) {
+export function LeadsTable({
+  leads,
+  callIdByLead = {},
+}: {
+  leads: Lead[];
+  callIdByLead?: Record<string, string>;
+}) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<string>("all");
@@ -123,12 +128,12 @@ export function LeadsTable({ leads }: { leads: Lead[] }) {
             </TableHeader>
             <TableBody>
               {filtered.map((lead) => {
-                const call = getCallForLead(lead.id);
+                const callId = callIdByLead[lead.id];
                 return (
                   <TableRow
                     key={lead.id}
-                    className={call ? "cursor-pointer" : ""}
-                    onClick={call ? () => router.push(`/calls/${call.id}`) : undefined}
+                    className={callId ? "cursor-pointer" : ""}
+                    onClick={callId ? () => router.push(`/calls/${callId}`) : undefined}
                   >
                     <TableCell>
                       <div className="font-medium">{lead.name.trim()}</div>

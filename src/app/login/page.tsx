@@ -1,9 +1,5 @@
-import Link from "next/link";
-import { ArrowRight } from "lucide-react";
 import { Brand } from "@/components/brand";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { LoginForm } from "@/components/login-form";
 import { LiveWaveform } from "@/components/live-indicator";
 import { FadeIn } from "@/components/motion";
 
@@ -79,40 +75,7 @@ export default function LoginPage() {
             </p>
           </div>
 
-          <form className="space-y-4" action="/overview">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@company.com"
-                defaultValue="ops@meridiancapital.com"
-                autoComplete="email"
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password">Password</Label>
-                <Link
-                  href="#"
-                  className="text-xs text-muted-foreground hover:text-foreground"
-                >
-                  Forgot?
-                </Link>
-              </div>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••••"
-                defaultValue="demo-password"
-                autoComplete="current-password"
-              />
-            </div>
-            <Button type="submit" className="w-full gap-2" size="lg">
-              Open console
-              <ArrowRight className="size-4" />
-            </Button>
-          </form>
+          <LoginForm />
 
           <p className="text-center text-xs text-muted-foreground">
             Protected workspace · calls comply with configured hours &amp;

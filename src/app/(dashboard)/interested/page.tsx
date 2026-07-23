@@ -1,17 +1,17 @@
 import Link from "next/link";
-import { Phone, FileText, Building2 } from "lucide-react";
+import { Phone, FileText, Building2, Sparkles } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Stagger, StaggerItem } from "@/components/motion";
 import { MarkContactedButton } from "@/components/mark-contacted";
-import { leads, getCallForLead } from "@/lib/sample-data";
+import { getInterestedLeads } from "@/lib/data";
 import { formatPhone, relativeTime, initials } from "@/lib/format";
 
-export default function InterestedPage() {
-  const interested = leads.filter(
-    (l) => l.status === "interested" || l.status === "callback",
-  );
+export const dynamic = "force-dynamic";
+
+export default async function InterestedPage() {
+  const items = await getInterestedLeads();
 
   return (
     <div className="mx-auto max-w-5xl space-y-8">
@@ -20,10 +20,20 @@ export default function InterestedPage() {
         description="Warm prospects the agent qualified. Call them back yourself — the context is here."
       />
 
-      <Stagger className="grid gap-4 md:grid-cols-2">
-        {interested.map((lead) => {
-          const call = getCallForLead(lead.id);
-          return (
+      {items.length === 0 ? (
+        <Card className="flex flex-col items-center gap-3 border-dashed py-16 text-center">
+          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-muted">
+            <Sparkles className="size-5 text-muted-foreground" />
+          </span>
+          <p className="text-sm font-medium">No interested leads yet</p>
+          <p className="max-w-xs text-xs text-muted-foreground">
+            When the agent qualifies someone as interested or books a callback, they show
+            up here for you to call back.
+          </p>
+        </Card>
+      ) : (
+        <Stagger className="grid gap-4 md:grid-cols-2">
+          {items.map(({ lead, call }) => (
             <StaggerItem key={lead.id}>
               <Card className="hover-lift h-full gap-0 p-5">
                 <div className="flex items-start gap-3">
@@ -31,10 +41,10 @@ export default function InterestedPage() {
                     {initials(lead.name)}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <h3 className="truncate font-semibold">{lead.name.trim()}</h3>
+                    <h3 className="truncate font-semibold">{lead.name.trim() || "Unknown"}</h3>
                     <p className="flex items-center gap-1.5 truncate text-sm text-muted-foreground">
                       <Building2 className="size-3.5 shrink-0" />
-                      {lead.businessName}
+                      {lead.businessName || lead.email || "—"}
                     </p>
                   </div>
                   {lead.status === "callback" && (
@@ -44,7 +54,7 @@ export default function InterestedPage() {
                   )}
                 </div>
 
-                {call && (
+                {call?.summary && (
                   <p className="mt-4 line-clamp-3 text-sm leading-relaxed text-muted-foreground">
                     “{call.summary}”
                   </p>
@@ -76,14 +86,14 @@ export default function InterestedPage() {
                         Transcript
                       </Button>
                     )}
-                    <MarkContactedButton name={lead.name.trim()} />
+                    <MarkContactedButton leadId={lead.id} name={lead.name.trim() || "this lead"} />
                   </div>
                 </div>
               </Card>
             </StaggerItem>
-          );
-        })}
-      </Stagger>
+          ))}
+        </Stagger>
+      )}
     </div>
   );
 }

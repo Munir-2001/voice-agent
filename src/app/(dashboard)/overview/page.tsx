@@ -3,41 +3,47 @@ import { Phone, PhoneOutgoing, Sparkles, Clock, ChevronRight, ArrowRight } from 
 import { StatCard } from "@/components/stat-card";
 import { CampaignHero } from "@/components/campaign-hero";
 import { LiveCallMonitor } from "@/components/live-call-monitor";
-import { LiveActivityFeed } from "@/components/live-activity-feed";
+import { LiveActivityFeed, type ActivityItem } from "@/components/live-activity-feed";
 import { CallsChart } from "@/components/calls-chart";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Stagger, StaggerItem, FadeIn } from "@/components/motion";
-import { leads } from "@/lib/sample-data";
+import { getLeads, getCalls, computeStats } from "@/lib/data";
 import { LEAD_STATUS_META, TONE_DOT } from "@/lib/status";
-import type { LeadStatus } from "@/lib/types";
 
-export default function OverviewPage() {
-  const interested = leads.filter((l) => l.status === "interested").length;
-  const callbacks = leads.filter((l) => l.status === "callback").length;
-  const warm = interested + callbacks;
+export const dynamic = "force-dynamic";
 
-  const statusOrder: LeadStatus[] = [
-    "interested",
-    "callback",
-    "not_interested",
-    "voicemail",
-    "no_answer",
-    "opted_out",
-    "pending",
-  ];
-  const counts = statusOrder
-    .map((s) => ({ status: s, count: leads.filter((l) => l.status === s).length }))
-    .filter((c) => c.count > 0);
-  const maxCount = Math.max(...counts.map((c) => c.count));
+const MONTH_TARGET = 500;
+
+export default async function OverviewPage() {
+  // 35-day window fully covers "this month" (so month stats never truncate) and
+  // bounds the connect rate to recent performance. Newest-first from getCalls.
+  const since = new Date(Date.now() - 35 * 86_400_000).toISOString();
+  const [leads, calls] = await Promise.all([getLeads(), getCalls(2000, since)]);
+  const stats = computeStats(leads, calls);
+  const warm = stats.interested + stats.callbacks;
+  const maxCount = Math.max(1, ...stats.outcomeCounts.map((c) => c.count));
+
+  // Real feeds for the live row (no simulated data).
+  const activity: ActivityItem[] = calls.slice(0, 8).map((c) => ({
+    id: c.id,
+    name: c.leadName || c.businessName,
+    outcome: c.outcome,
+    text: c.summary,
+    at: c.startedAt,
+  }));
+  const dialing = leads.find((l) => l.status === "calling");
+  const calling = dialing
+    ? { name: dialing.name, business: dialing.businessName, industry: dialing.industry }
+    : null;
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <FadeIn>
         <CampaignHero
-          callsToday={19}
-          interestedToday={interested}
-          monthDone={266}
-          monthTarget={500}
+          callsToday={stats.callsToday}
+          interestedToday={stats.interestedToday}
+          monthDone={stats.dialsThisMonth}
+          monthTarget={MONTH_TARGET}
         />
       </FadeIn>
 
@@ -70,43 +76,45 @@ export default function OverviewPage() {
       {/* stats */}
       <Stagger className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StaggerItem>
-          <StatCard label="Dials this month" value={266} accent="blue" delta={{ value: "12%", positive: true }} hint="Target 500 / month" icon={<PhoneOutgoing className="size-4" />} />
+          <StatCard label="Dials this month" value={stats.dialsThisMonth} accent="blue" hint={`Target ${MONTH_TARGET} / month`} icon={<PhoneOutgoing className="size-4" />} />
         </StaggerItem>
         <StaggerItem>
-          <StatCard label="Connect rate" value={34} suffix="%" accent="blue" delta={{ value: "3 pts", positive: true }} hint="Live human answers" icon={<Phone className="size-4" />} />
+          <StatCard label="Connect rate" value={stats.connectRate} suffix="%" accent="blue" hint="Live human answers" icon={<Phone className="size-4" />} />
         </StaggerItem>
         <StaggerItem>
-          <StatCard label="Interested" value={interested} accent="green" delta={{ value: "4 new", positive: true }} hint="Ready for callback" icon={<Sparkles className="size-4" />} />
+          <StatCard label="Interested" value={stats.interested} accent="green" hint="Ready for callback" icon={<Sparkles className="size-4" />} />
         </StaggerItem>
         <StaggerItem>
-          <StatCard label="Callbacks due" value={callbacks} accent="yellow" hint="Requested a time" icon={<Clock className="size-4" />} />
+          <StatCard label="Callbacks due" value={stats.callbacks} accent="yellow" hint="Requested a time" icon={<Clock className="size-4" />} />
         </StaggerItem>
       </Stagger>
 
-      {/* live row */}
+      {/* live row (real state — current call + recent activity) */}
       <div className="grid gap-4 lg:grid-cols-3">
         <FadeIn delay={0.1} className="lg:col-span-2">
-          <LiveCallMonitor />
+          <LiveCallMonitor calling={calling} />
         </FadeIn>
         <FadeIn delay={0.16}>
           <Card className="h-full gap-0">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                Live activity
-                <span className="ml-auto flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
-                  <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
-                  streaming
-                </span>
+                Recent activity
+                {calling && (
+                  <span className="ml-auto flex items-center gap-1.5 text-xs font-normal text-success">
+                    <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
+                    on a call
+                  </span>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent className="px-3">
-              <LiveActivityFeed />
+              <LiveActivityFeed items={activity} />
             </CardContent>
           </Card>
         </FadeIn>
       </div>
 
-      {/* analytics row */}
+      {/* analytics row (live) */}
       <div className="grid gap-4 lg:grid-cols-3">
         <FadeIn delay={0.1} className="lg:col-span-2">
           <Card className="h-full">
@@ -116,7 +124,13 @@ export default function OverviewPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <CallsChart />
+              {stats.dialsThisMonth === 0 && calls.length === 0 ? (
+                <div className="flex h-[240px] items-center justify-center text-center text-sm text-muted-foreground">
+                  No calls yet — activate the campaign and this fills in.
+                </div>
+              ) : (
+                <CallsChart data={stats.dailySeries} />
+              )}
             </CardContent>
           </Card>
         </FadeIn>
@@ -130,23 +144,29 @@ export default function OverviewPage() {
               </Link>
             </CardHeader>
             <CardContent className="space-y-3.5">
-              {counts.map((c) => (
-                <div key={c.status} className="space-y-1.5">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="flex items-center gap-2 text-muted-foreground">
-                      <span className={`h-2 w-2 rounded-full ${TONE_DOT[LEAD_STATUS_META[c.status].tone]}`} />
-                      {LEAD_STATUS_META[c.status].label}
-                    </span>
-                    <span className="font-medium tnum">{c.count}</span>
+              {stats.outcomeCounts.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  No leads yet — upload a list to get started.
+                </p>
+              ) : (
+                stats.outcomeCounts.map((c) => (
+                  <div key={c.status} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-2 text-muted-foreground">
+                        <span className={`h-2 w-2 rounded-full ${TONE_DOT[LEAD_STATUS_META[c.status].tone]}`} />
+                        {LEAD_STATUS_META[c.status].label}
+                      </span>
+                      <span className="font-medium tnum">{c.count}</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className={`h-full rounded-full ${TONE_DOT[LEAD_STATUS_META[c.status].tone]}`}
+                        style={{ width: `${(c.count / maxCount) * 100}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className={`h-full rounded-full ${TONE_DOT[LEAD_STATUS_META[c.status].tone]}`}
-                      style={{ width: `${(c.count / maxCount) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </CardContent>
           </Card>
         </FadeIn>

@@ -15,9 +15,11 @@ import { CallOutcomeBadge } from "@/components/status-badge";
 import { CallPlayer } from "@/components/call-player";
 import { MarkContactedButton } from "@/components/mark-contacted";
 import { FadeIn } from "@/components/motion";
-import { calls, leads } from "@/lib/sample-data";
-import { formatPhone, formatDuration, timeOfDay } from "@/lib/format";
+import { getCallById, getLeadById } from "@/lib/data";
+import { formatPhone, formatDuration, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+
+export const dynamic = "force-dynamic";
 
 export default async function CallDetailPage({
   params,
@@ -25,10 +27,10 @@ export default async function CallDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const call = calls.find((c) => c.id === id);
+  const call = await getCallById(id);
   if (!call) notFound();
 
-  const lead = leads.find((l) => l.id === call.leadId);
+  const lead = call.leadId ? await getLeadById(call.leadId) : null;
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -143,7 +145,7 @@ export default async function CallDetailPage({
                 </Detail>
               )}
               <Detail icon={<Calendar className="size-4" />} label="When">
-                Jul 16, {timeOfDay(call.startedAt)}
+                {formatDateTime(call.startedAt)}
               </Detail>
               <Detail icon={<Clock className="size-4" />} label="Duration">
                 {formatDuration(call.durationSecs)}
@@ -171,7 +173,7 @@ export default async function CallDetailPage({
                       <Phone className="size-4" />
                       Call now
                     </Button>
-                    <MarkContactedButton name={lead.name.trim()} />
+                    <MarkContactedButton leadId={lead.id} name={lead.name.trim()} />
                   </div>
                 </CardContent>
               </Card>
