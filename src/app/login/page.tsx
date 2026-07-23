@@ -1,5 +1,6 @@
 import { Brand } from "@/components/brand";
 import { LoginForm } from "@/components/login-form";
+import { LoginAiField } from "@/components/login-ai-field";
 import { LiveWaveform } from "@/components/live-indicator";
 import { FadeIn } from "@/components/motion";
 
@@ -8,12 +9,23 @@ export default function LoginPage() {
     <div className="grid min-h-dvh lg:grid-cols-2">
       {/* Brand panel */}
       <div className="relative hidden flex-col justify-between overflow-hidden bg-brand-blue p-12 text-white lg:flex">
+        {/* animated AI signal network */}
+        <LoginAiField className="pointer-events-none absolute inset-0 h-full w-full" />
+        {/* dot-grid texture over the field */}
         <div
-          className="pointer-events-none absolute inset-0 opacity-[0.06]"
+          className="pointer-events-none absolute inset-0 opacity-[0.05]"
           style={{
             backgroundImage:
               "radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)",
             backgroundSize: "22px 22px",
+          }}
+        />
+        {/* vignette so foreground copy stays crisp over the animation */}
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(120% 90% at 30% 55%, transparent 40%, oklch(0.55 0.19 256 / 0.55) 100%)",
           }}
         />
         <div className="relative flex items-center gap-2.5">
