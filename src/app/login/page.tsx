@@ -1,10 +1,13 @@
+import { AlertTriangle } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { LoginForm } from "@/components/login-form";
 import { LoginAiField } from "@/components/login-ai-field";
 import { LiveWaveform } from "@/components/live-indicator";
 import { FadeIn } from "@/components/motion";
+import { isAuthConfigured } from "@/lib/supabase/config";
 
 export default function LoginPage() {
+  const authReady = isAuthConfigured();
   return (
     <div className="grid min-h-dvh lg:grid-cols-2">
       {/* Brand panel */}
@@ -86,6 +89,17 @@ export default function LoginPage() {
               Welcome back. Enter your credentials to open the console.
             </p>
           </div>
+
+          {!authReady && (
+            <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning-muted px-3 py-2.5 text-sm text-warning-ink">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+              <span>
+                Sign-in is unavailable: <code>NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
+                <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code> aren&apos;t set on this
+                deployment. Add them in your hosting environment, then redeploy.
+              </span>
+            </div>
+          )}
 
           <LoginForm />
 

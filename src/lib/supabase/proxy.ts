@@ -21,11 +21,21 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     return NextResponse.next({ request });
   }
 
-  // If auth env isn't set, don't brick the whole site — let requests through so
-  // the app can still boot (routes still guard themselves server-side).
+  // If auth env isn't set we cannot authenticate anyone, so fail CLOSED: send
+  // pages to /login (which explains the misconfiguration) and reject APIs with
+  // 503. Never fall through to the console — that would expose it unauthenticated.
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anon) return NextResponse.next({ request });
+  if (!url || !anon) {
+    if (isPublic(pathname)) return NextResponse.next({ request });
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Auth is not configured" }, { status: 503 });
+    }
+    const loginUrl = request.nextUrl.clone();
+    loginUrl.pathname = "/login";
+    loginUrl.search = "";
+    return NextResponse.redirect(loginUrl);
+  }
 
   let response = NextResponse.next({ request });
 

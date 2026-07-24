@@ -4,3 +4,10 @@ export function isSupabaseConfigured(): boolean {
     process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY,
   );
 }
+
+/** True when Supabase Auth can run (URL + anon key present). */
+export function isAuthConfigured(): boolean {
+  return Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  );
+}
