@@ -147,28 +147,61 @@ function bullets(items: string[]): string {
  * Assemble the complete system prompt for the ElevenLabs agent.
  * Pass campaign-level names; per-call variables ({{name}} etc.) stay as
  * placeholders that ElevenLabs fills from dynamic variables at dial time.
+ *
+ * `compact: true` produces the build meant for production voice calls: it drops
+ * the inlined knowledge base (upload it to ElevenLabs' Knowledge Base and let RAG
+ * retrieve only the relevant chunk) and the verbatim objection examples. With a
+ * custom/bundled LLM the system prompt is re-sent on EVERY conversational turn, so
+ * halving it directly halves per-turn input tokens — which is what keeps latency
+ * (and the token-per-minute rate limit) survivable mid-call.
  */
 export function buildSystemPrompt(opts?: {
   agentName?: string;
   companyName?: string;
+  compact?: boolean;
 }): string {
   const agentName = opts?.agentName ?? "{{agent_name}}";
   const companyName = opts?.companyName ?? "{{company_name}}";
+  const compact = opts?.compact ?? false;
 
   const flow = CONVERSATION_FLOW.map(
     (p) =>
       `${p.step}. ${p.title} — ${p.goal}\n   ${p.detail}${p.sample ? `\n   e.g. "${p.sample}"` : ""}`,
   ).join("\n\n");
 
-  const objections = OBJECTIONS.map(
-    (o) => `• "${o.trigger}"\n   Approach: ${o.approach}\n   e.g. "${o.example}"`,
-  ).join("\n\n");
+  // Compact drops the sample lines — the model improvises fine from the
+  // acknowledge → reframe → benefit → next-step pattern alone.
+  const objections = compact
+    ? OBJECTIONS.map((o) => `• "${o.trigger}" → ${o.approach}`).join("\n")
+    : OBJECTIONS.map(
+        (o) => `• "${o.trigger}"\n   Approach: ${o.approach}\n   e.g. "${o.example}"`,
+      ).join("\n\n");
 
   const kb = KNOWLEDGE_BASE.map((f) => `Q: ${f.question}\nA: ${f.answer}`).join("\n\n");
+
+  const knowledgeSection = compact
+    ? `# KNOWLEDGE BASE
+Product, qualification, and process facts live in your attached Knowledge Base —
+consult it whenever the owner asks something specific. If it doesn't cover their
+question, say a specialist will confirm rather than guessing. Never invent rates,
+amounts, approval odds, or timelines.`
+    : `# KNOWLEDGE BASE (answer honestly from this; if unsure, say a specialist will confirm)
+${kb}`;
 
   const industries = INDUSTRY_PLAYBOOKS.map(
     (i) => `• ${i.label}: ${i.valueHook} (Common uses: ${i.uses.join(", ")}.)`,
   ).join("\n");
+
+  // The scheduler already resolves the ONE hook matching this lead's industry and
+  // passes it as {{industry_hook}}. Compact mode uses that directly instead of
+  // making the model scan every industry's hook on every turn — same guidance,
+  // ~2.2k fewer chars, and a more precise angle.
+  const industrySection = compact
+    ? `# INDUSTRY ANGLE FOR THIS CALL
+{{industry_hook}}
+(If that's blank we don't know their industry — find it out early and adapt.)`
+    : `# INDUSTRY VALUE HOOKS (use the one matching {{industry}})
+${industries}`;
 
   return `# IDENTITY
 ${PERSONA.replace("{{agent_name}}", agentName).replace("{{company_name}}", companyName)}
@@ -191,14 +224,19 @@ ${bullets(PERSUASION_PRINCIPLES)}
 # CONVERSATION FLOW
 ${flow}
 
-# INDUSTRY VALUE HOOKS (use the one matching {{industry}})
-${industries}
+${industrySection}
+
+# CALL EFFICIENCY (respect their time — and every extra minute is billed)
+- VOICEMAIL / ANSWERING MACHINE: if you hear a recorded greeting, a beep, or get no live reply to your first two prompts, do NOT run the script. Leave one short line — who you are and that you'll try again — then end the call immediately.
+- WRONG PERSON: if they're not the decision maker and can't pass you to them, get the right name and a good time, then close politely. Never pitch the wrong person.
+- FIRM NO: accept it in a single line and end warmly. Never re-pitch a hard no.
+- DEAD AIR: if they've gone silent twice, check in once, then wrap up.
+- Every call should end as soon as its outcome is clear. Lingering helps nobody.
 
 # OBJECTION HANDLING (acknowledge → reframe → one benefit → soft next step; never argue)
 ${objections}
 
-# KNOWLEDGE BASE (answer honestly from this; if unsure, say a specialist will confirm)
-${kb}
+${knowledgeSection}
 
 # HARD RULES (non-negotiable)
 ${bullets(COMPLIANCE_RULES)}

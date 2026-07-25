@@ -135,3 +135,27 @@ export const KNOWLEDGE_BASE: FaqEntry[] = [
       "Possibly — some programs can pay off up to two existing advances or short-term loans and consolidate them into a more manageable structure. A specialist reviews your current balances to see if it makes sense.",
   },
 ];
+
+/**
+ * Render the knowledge base as a standalone document to upload into ElevenLabs'
+ * Knowledge Base (RAG). Used with `buildSystemPrompt({ compact: true })`, which
+ * omits these facts from the prompt so only the relevant chunk is retrieved per
+ * question instead of all of them being re-sent on every conversational turn.
+ *
+ * Regenerate and re-upload whenever this file changes — nothing syncs it
+ * automatically.
+ */
+export function buildKnowledgeBaseDocument(): string {
+  const entries = KNOWLEDGE_BASE.map(
+    (f) => `## ${f.question}\n\n${f.answer}`,
+  ).join("\n\n");
+
+  return `# Financing Knowledge Base
+
+Reference facts for the calling agent. Answer from this material honestly. If a
+question isn't covered here, say a specialist will confirm — never invent rates,
+amounts, approval odds, or timelines.
+
+${entries}
+`;
+}
