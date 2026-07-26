@@ -100,11 +100,19 @@ export async function POST(request: Request) {
     .filter((l) => !blocked.has(l.phone))
     .slice(0, settings.calls_per_tick);
 
-  const numbers: string[] = settings.numbers ?? [];
-  if (numbers.length === 0) {
-    // Without a caller ID there is nothing to dial from — surface it rather than
-    // failing once per lead with a confusing ElevenLabs error.
-    console.error("dial-tick: campaign_settings.numbers is empty — no caller ID configured");
+  // Caller-ID pool = ElevenLabs phone-number IDs (phnum_…). The outbound API
+  // picks the caller ID from agent_phone_number_id, so rotation must happen on
+  // the IDs, not the raw numbers. Accept a comma-separated list, else the single.
+  const phoneNumberIds = (
+    process.env.ELEVENLABS_PHONE_NUMBER_IDS ??
+    process.env.ELEVENLABS_PHONE_NUMBER_ID ??
+    ""
+  )
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (phoneNumberIds.length === 0) {
+    console.error("dial-tick: no ELEVENLABS_PHONE_NUMBER_ID(S) configured");
     return NextResponse.json({ skipped: "no caller numbers configured" });
   }
 
@@ -113,9 +121,9 @@ export async function POST(request: Request) {
 
   for (let i = 0; i < eligible.length; i++) {
     const lead = eligible[i];
-    const fromNumber = numbers[i % numbers.length];
+    const agentPhoneNumberId = phoneNumberIds[i % phoneNumberIds.length];
     try {
-      await placeOutboundCall(lead, fromNumber);
+      await placeOutboundCall(lead, agentPhoneNumberId);
       await supabase
         .from("leads")
         .update({
@@ -143,6 +151,8 @@ export async function POST(request: Request) {
 }
 
 // Triggers an ElevenLabs outbound call via the Twilio-connected number.
+// `agentPhoneNumberId` is an ElevenLabs phone-number id (phnum_…); it determines
+// the caller ID — there is no separate from_number field on this endpoint.
 async function placeOutboundCall(
   lead: {
     id: string;
@@ -152,7 +162,7 @@ async function placeOutboundCall(
     email: string | null;
     phone: string;
   },
-  fromNumber: string,
+  agentPhoneNumberId: string,
 ) {
   // Per-lead pre-call brief so the agent opens with context, not a blank.
   const { brief } = researchLead({
@@ -172,9 +182,8 @@ async function placeOutboundCall(
       },
       body: JSON.stringify({
         agent_id: process.env.ELEVENLABS_AGENT_ID,
-        agent_phone_number_id: process.env.ELEVENLABS_PHONE_NUMBER_ID,
+        agent_phone_number_id: agentPhoneNumberId,
         to_number: lead.phone,
-        from_number: fromNumber,
         // Injected into the agent prompt as dynamic variables.
         conversation_initiation_client_data: {
           dynamic_variables: {
