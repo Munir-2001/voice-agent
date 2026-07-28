@@ -8,7 +8,17 @@ import "server-only";
 // EMAIL_REPLY_TO (Rose's inbox). If any is missing we skip silently (dashboard
 // still shows the interested lead), so a half-configured deploy never 500s.
 
-import { COMPANY_NAME, DOCUMENTS_REQUESTED, MAILING_ADDRESS } from "@/lib/email-copy";
+import {
+  COMPANY_NAME,
+  SENDER_NAME,
+  WEBSITE,
+  SUBJECT,
+  INTRO,
+  REQUESTED_ITEMS,
+  CLOSING,
+  SIGN_OFF,
+  MAILING_ADDRESS,
+} from "@/lib/email-copy";
 
 interface WelcomeLead {
   name: string;
@@ -27,47 +37,51 @@ function looksLikeEmail(v: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 }
 
+function esc(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function buildEmail(lead: WelcomeLead): { subject: string; html: string; text: string } {
   const first = lead.name.trim().split(/\s+/)[0] || "there";
-  const biz = lead.businessName.trim();
-  const bizLine = biz ? ` for ${biz}` : "";
 
-  const subject = `Next steps on your business financing${bizLine}`;
+  const itemsText = REQUESTED_ITEMS.map((d) => `  •  ${d}`).join("\n");
+  const itemsHtml = REQUESTED_ITEMS.map((d) => `<li>${esc(d)}</li>`).join("");
 
-  const docsList = DOCUMENTS_REQUESTED.map((d) => `  • ${d}`).join("\n");
-  const docsHtml = DOCUMENTS_REQUESTED.map((d) => `<li>${d}</li>`).join("");
+  const text = `Hello ${first},
 
-  const text = `Hi ${first},
+Welcome to ${COMPANY_NAME}!
 
-Thanks for taking our call and for your interest in flexible financing${bizLine}. We'd love to help you get set up.
+${INTRO}
 
-To move things forward, just reply to this email and attach:
-${docsList}
+To get started, please reply with the following:
 
-Once we have those, a funding specialist will review your options and reach out to walk you through everything — no obligation, and you decide if it's a fit.
+${itemsText}
 
-Reply right here whenever you're ready.
+${CLOSING}
 
-Warm regards,
+${SIGN_OFF}
+
+${SENDER_NAME}
 ${COMPANY_NAME}
+${WEBSITE}
 
 —
 ${MAILING_ADDRESS}
 If you'd prefer not to receive these emails, just reply and let us know.`;
 
   const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1a1a1a;max-width:560px;margin:0 auto;">
-  <p>Hi ${first},</p>
-  <p>Thanks for taking our call and for your interest in flexible financing${bizLine}. We'd love to help you get set up.</p>
-  <p>To move things forward, just <strong>reply to this email</strong> and attach:</p>
-  <ul>${docsHtml}</ul>
-  <p>Once we have those, a funding specialist will review your options and reach out to walk you through everything — no obligation, and you decide if it's a fit.</p>
-  <p>Reply right here whenever you're ready.</p>
-  <p>Warm regards,<br/>${COMPANY_NAME}</p>
+  <p>Hello ${esc(first)},</p>
+  <p><strong>Welcome to ${esc(COMPANY_NAME)}!</strong></p>
+  <p>${esc(INTRO)}</p>
+  <p>To get started, please <strong>reply to this email</strong> with the following:</p>
+  <ul>${itemsHtml}</ul>
+  <p>${esc(CLOSING)}</p>
+  <p>${esc(SIGN_OFF)}<br/><br/>${esc(SENDER_NAME)}<br/>${esc(COMPANY_NAME)}<br/><a href="${esc(WEBSITE)}">${esc(WEBSITE)}</a></p>
   <hr style="border:none;border-top:1px solid #e5e5e5;margin:24px 0;"/>
-  <p style="font-size:12px;color:#888;">${MAILING_ADDRESS}<br/>If you'd prefer not to receive these emails, just reply and let us know.</p>
+  <p style="font-size:12px;color:#888;">${esc(MAILING_ADDRESS)}<br/>If you'd prefer not to receive these emails, just reply and let us know.</p>
 </div>`;
 
-  return { subject, html, text };
+  return { subject: SUBJECT, html, text };
 }
 
 /**

@@ -1,17 +1,33 @@
 // Editable copy for the welcome email sent to interested leads.
-// Change these freely — no logic lives here. Keep the documents list SHORT;
-// every extra item lowers the reply rate. Confirm the exact list with the client.
+// Change anything here freely — no logic lives in this file.
 
-// The signature / who the email is from, as the lead reads it.
-export const COMPANY_NAME = "ARF Financial";
+export const COMPANY_NAME = "Lending Success Pot";
+export const SENDER_NAME = "Rosemarie Zuleta";
+export const WEBSITE = "https://lendingsuccesspot.com/";
 
-// Documents the lead is asked to reply with. Keep it minimal.
-// TODO: confirm this list with the business owner before going live.
-export const DOCUMENTS_REQUESTED = [
-  "A photo of your driver's license or government ID",
-  "Your 3 most recent business bank statements",
+export const SUBJECT = "Welcome to Lending Success Pot — your financing next steps";
+
+// First line after the greeting.
+export const INTRO =
+  "Thank you for your interest in business financing. We're here to help established businesses with physical locations explore funding solutions tailored to their growth goals.";
+
+// The lead is asked to REPLY with these (info, not attachments — light ask).
+export const REQUESTED_ITEMS = [
+  "Business Name",
+  "Business Type (Hotel, Medical Clinic, Real Estate, Restaurant, Retail, etc.)",
+  "Business Address",
+  "Funding Amount Requested",
+  "Estimated Credit Score if known",
+  "Valid Driver's License or Government-Issued Photo ID (Yes/No)",
+  "Best Contact Phone Number",
 ];
 
-// Required on commercial email (CAN-SPAM): a real physical mailing address.
-// Replace with the client's actual business address before sending to real leads.
-export const MAILING_ADDRESS = "ARF Financial · [street, city, state ZIP]";
+// Paragraph after the list.
+export const CLOSING =
+  "Once we receive your information, our team will review your request and contact you to discuss the next steps and available financing options. We appreciate the opportunity to serve your business and look forward to assisting you.";
+
+export const SIGN_OFF = "Kind regards,";
+
+// CAN-SPAM requires a real physical mailing address on commercial email.
+// TODO: replace with Lending Success Pot's actual business address before go-live.
+export const MAILING_ADDRESS = "Lending Success Pot · [street, city, state ZIP]";
