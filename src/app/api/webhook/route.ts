@@ -4,6 +4,11 @@ import { classifyTranscript } from "@/lib/classify";
 import type { TranscriptTurn } from "@/lib/types";
 import { verifyWebhookSignature, clientIp, apiError } from "@/lib/security";
 import { rateLimit } from "@/lib/rate-limit";
+import { sendWelcomeEmail } from "@/lib/email";
+
+// Outcomes that make a lead "warm" — they get the welcome email + appear in the
+// /interested dashboard queue for Rose to handle.
+const QUALIFIED: string[] = ["interested", "callback"];
 
 // ElevenLabs post-call webhook. Verifies the signed payload (HMAC + timestamp),
 // stores the call, classifies the transcript, and updates the lead's status.
@@ -89,6 +94,24 @@ export async function POST(request: Request) {
     }
     if (callbackAt) patch.callback_at = callbackAt;
     await supabase.from("leads").update(patch).eq("id", leadId);
+
+    // Warm lead → send the welcome/next-steps email so they can reply to Rose
+    // with documents. Best-effort: never let email break the webhook.
+    if (QUALIFIED.includes(outcome)) {
+      const { data: lead } = await supabase
+        .from("leads")
+        .select("name, business_name, email")
+        .eq("id", leadId)
+        .maybeSingle();
+      if (lead?.email) {
+        const result = await sendWelcomeEmail({
+          name: (lead.name as string) ?? "",
+          businessName: (lead.business_name as string) ?? "",
+          email: lead.email as string,
+        });
+        if (!result.sent) console.error("welcome email skipped:", result.reason);
+      }
+    }
   }
 
   return NextResponse.json({ ok: true, outcome });
