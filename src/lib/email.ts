@@ -103,6 +103,85 @@ If you'd prefer not to receive these emails, just reply and let us know.`;
   return { subject: SUBJECT, html, text };
 }
 
+// Internal team who get a heads-up when a lead goes interested (comma-separated
+// in EMAIL_NOTIFY, e.g. "naveed@gmail.com,rose@icloud.com").
+export function notifyRecipients(): string[] {
+  return (process.env.EMAIL_NOTIFY ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+interface LeadNotification {
+  name: string;
+  businessName: string;
+  phone: string;
+  email: string | null;
+  outcome: string;
+  summary: string;
+  callbackAt?: string | null;
+}
+
+/**
+ * Internal alert to the team (Naveed / Rosemarie) that a lead is interested.
+ * Sent regardless of whether the lead has an email, so the team always sees new
+ * warm leads. Never throws.
+ */
+export async function sendLeadNotification(
+  n: LeadNotification,
+): Promise<{ sent: boolean; reason?: string }> {
+  if (!isEmailConfigured()) return { sent: false, reason: "email not configured" };
+  const to = notifyRecipients();
+  if (to.length === 0) return { sent: false, reason: "no EMAIL_NOTIFY recipients" };
+
+  const fromName = process.env.EMAIL_FROM_NAME || COMPANY_NAME;
+  const fromAddr = process.env.SMTP_USER!;
+  const biz = n.businessName.trim() || "—";
+  const subject = `New interested lead: ${n.name.trim() || "Unknown"}${
+    n.businessName.trim() ? ` (${n.businessName.trim()})` : ""
+  }`;
+
+  const rows: [string, string][] = [
+    ["Name", n.name.trim() || "—"],
+    ["Business", biz],
+    ["Phone", n.phone || "—"],
+    ["Email", n.email || "—"],
+    ["Outcome", n.outcome],
+  ];
+  if (n.callbackAt) rows.push(["Requested callback", n.callbackAt]);
+
+  const text = `New interested lead\n\n${rows
+    .map(([k, v]) => `${k}: ${v}`)
+    .join("\n")}\n\nSummary:\n${n.summary || "—"}\n\nThey've been sent the welcome email (if an address was on file). Please follow up.`;
+
+  const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1a1a1a;max-width:560px;">
+  <p style="font-weight:600;">🎉 New interested lead</p>
+  <table style="border-collapse:collapse;">${rows
+    .map(
+      ([k, v]) =>
+        `<tr><td style="padding:2px 12px 2px 0;color:#666;">${esc(k)}</td><td style="padding:2px 0;font-weight:500;">${esc(
+          v,
+        )}</td></tr>`,
+    )
+    .join("")}</table>
+  <p style="margin-top:16px;"><strong>Summary</strong><br/>${esc(n.summary || "—")}</p>
+  <p style="color:#666;font-size:13px;">They've been sent the welcome email (if an address was on file). Please follow up.</p>
+</div>`;
+
+  try {
+    await getTransport().sendMail({
+      from: `"${fromName}" <${fromAddr}>`,
+      to,
+      subject,
+      html,
+      text,
+    });
+    return { sent: true };
+  } catch (err) {
+    return { sent: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /**
  * Sends the welcome email. Never throws — returns a small result the caller can
  * log. A failure here must never break the post-call webhook.

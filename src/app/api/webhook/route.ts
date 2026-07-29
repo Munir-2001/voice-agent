@@ -4,7 +4,7 @@ import { classifyTranscript } from "@/lib/classify";
 import type { TranscriptTurn } from "@/lib/types";
 import { verifyWebhookSignature, clientIp, apiError } from "@/lib/security";
 import { rateLimit } from "@/lib/rate-limit";
-import { sendWelcomeEmail } from "@/lib/email";
+import { sendWelcomeEmail, sendLeadNotification } from "@/lib/email";
 
 // Outcomes that make a lead "warm" — they get the welcome email + appear in the
 // /interested dashboard queue for Rose to handle.
@@ -95,21 +95,35 @@ export async function POST(request: Request) {
     if (callbackAt) patch.callback_at = callbackAt;
     await supabase.from("leads").update(patch).eq("id", leadId);
 
-    // Warm lead → send the welcome/next-steps email so they can reply to Rose
-    // with documents. Best-effort: never let email break the webhook.
+    // Warm lead → (1) email the lead the welcome/next-steps message, and
+    // (2) alert the internal team (Naveed / Rosemarie). Both best-effort — email
+    // must never break the webhook.
     if (QUALIFIED.includes(outcome)) {
       const { data: lead } = await supabase
         .from("leads")
-        .select("name, business_name, email")
+        .select("name, business_name, email, phone")
         .eq("id", leadId)
         .maybeSingle();
-      if (lead?.email) {
-        const result = await sendWelcomeEmail({
-          name: (lead.name as string) ?? "",
-          businessName: (lead.business_name as string) ?? "",
-          email: lead.email as string,
+      if (lead) {
+        const name = (lead.name as string) ?? "";
+        const businessName = (lead.business_name as string) ?? "";
+        const email = (lead.email as string) ?? null;
+
+        if (email) {
+          const r = await sendWelcomeEmail({ name, businessName, email });
+          if (!r.sent) console.error("welcome email skipped:", r.reason);
+        }
+
+        const n = await sendLeadNotification({
+          name,
+          businessName,
+          phone: (lead.phone as string) ?? "",
+          email,
+          outcome,
+          summary,
+          callbackAt,
         });
-        if (!result.sent) console.error("welcome email skipped:", result.reason);
+        if (!n.sent) console.error("lead notification skipped:", n.reason);
       }
     }
   }
