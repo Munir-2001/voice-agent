@@ -1,5 +1,6 @@
 import { PageHeader } from "@/components/page-header";
 import { SettingsForm } from "@/components/settings-form";
+import { TestingPanel } from "@/components/testing-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FadeIn } from "@/components/motion";
 import { getCampaignSettings } from "@/lib/data";
@@ -16,6 +17,9 @@ export default async function SettingsPage() {
       />
       <FadeIn>
         <SettingsForm settings={settings} />
+      </FadeIn>
+      <FadeIn delay={0.05}>
+        <TestingPanel />
       </FadeIn>
       <FadeIn delay={0.1}>
         <Card className="border-dashed">

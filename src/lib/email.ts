@@ -1,13 +1,17 @@
 import "server-only";
 // Sends the "welcome / next steps" email to a lead the moment the agent
-// qualifies them as interested. The lead replies to THIS email with their
-// documents, which land in Rose's inbox (EMAIL_REPLY_TO) — nothing sensitive is
-// stored in our system. Uses Resend (https://resend.com) over plain fetch.
+// qualifies them as interested. The lead replies to THIS email and their info
+// lands in Rose's inbox (EMAIL_REPLY_TO) — nothing sensitive is stored here.
 //
-// Required env: RESEND_API_KEY, EMAIL_FROM ("Name <sender@your-domain>"),
-// EMAIL_REPLY_TO (Rose's inbox). If any is missing we skip silently (dashboard
-// still shows the interested lead), so a half-configured deploy never 500s.
+// Sends over SMTP with an app password (works with Gmail out of the box and can
+// email real recipients immediately — no domain verification needed).
+// Required env: SMTP_HOST, SMTP_USER, SMTP_PASS. Optional: SMTP_PORT (default
+// 465), EMAIL_FROM_NAME (display name, defaults to the company), EMAIL_REPLY_TO
+// (defaults to SMTP_USER). If SMTP isn't configured we skip silently (the
+// dashboard still shows the interested lead), so a half-configured deploy never
+// 500s.
 
+import nodemailer, { type Transporter } from "nodemailer";
 import {
   COMPANY_NAME,
   SENDER_NAME,
@@ -28,8 +32,23 @@ interface WelcomeLead {
 
 export function isEmailConfigured(): boolean {
   return Boolean(
-    process.env.RESEND_API_KEY && process.env.EMAIL_FROM && process.env.EMAIL_REPLY_TO,
+    process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS,
   );
+}
+
+// Reused across warm invocations (module scope persists on a warm serverless
+// instance), so we don't reconnect SMTP on every call.
+let transporter: Transporter | null = null;
+function getTransport(): Transporter {
+  if (transporter) return transporter;
+  const port = Number(process.env.SMTP_PORT ?? 465);
+  transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port,
+    secure: port === 465, // 465 = implicit TLS; 587 = STARTTLS
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  });
+  return transporter;
 }
 
 // Very light sanity check — Resend rejects malformed addresses anyway.
@@ -98,26 +117,21 @@ export async function sendWelcomeEmail(
 
   const { subject, html, text } = buildEmail(lead);
 
+  // Gmail rewrites the From to the authenticated user, so the address IS
+  // SMTP_USER; only the display name is customizable. Replies go to Rose.
+  const fromName = process.env.EMAIL_FROM_NAME || COMPANY_NAME;
+  const fromAddr = process.env.SMTP_USER!;
+  const replyTo = process.env.EMAIL_REPLY_TO || fromAddr;
+
   try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: process.env.EMAIL_FROM,
-        to: [lead.email],
-        reply_to: process.env.EMAIL_REPLY_TO, // document replies go to Rose
-        subject,
-        html,
-        text,
-      }),
+    await getTransport().sendMail({
+      from: `"${fromName}" <${fromAddr}>`,
+      to: lead.email,
+      replyTo,
+      subject,
+      html,
+      text,
     });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      return { sent: false, reason: `resend ${res.status}: ${detail.slice(0, 200)}` };
-    }
     return { sent: true };
   } catch (err) {
     return { sent: false, reason: err instanceof Error ? err.message : String(err) };
