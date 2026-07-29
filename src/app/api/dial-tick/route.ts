@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { isWithinCallingWindow } from "@/lib/timezone";
-import { playbookForIndustry } from "@/lib/agent/industry-playbooks";
-import { researchLead } from "@/lib/agent/research";
+import { placeOutboundCall, callerNumberIds } from "@/lib/agent/outbound";
 import { hasValidCronSecret, clientIp, apiError } from "@/lib/security";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -100,17 +99,8 @@ export async function POST(request: Request) {
     .filter((l) => !blocked.has(l.phone))
     .slice(0, settings.calls_per_tick);
 
-  // Caller-ID pool = ElevenLabs phone-number IDs (phnum_…). The outbound API
-  // picks the caller ID from agent_phone_number_id, so rotation must happen on
-  // the IDs, not the raw numbers. Accept a comma-separated list, else the single.
-  const phoneNumberIds = (
-    process.env.ELEVENLABS_PHONE_NUMBER_IDS ??
-    process.env.ELEVENLABS_PHONE_NUMBER_ID ??
-    ""
-  )
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  // Caller-ID pool = ElevenLabs phone-number IDs (phnum_…), rotated per call.
+  const phoneNumberIds = callerNumberIds();
   if (phoneNumberIds.length === 0) {
     console.error("dial-tick: no ELEVENLABS_PHONE_NUMBER_ID(S) configured");
     return NextResponse.json({ skipped: "no caller numbers configured" });
@@ -148,61 +138,4 @@ export async function POST(request: Request) {
     failed: failed.length,
     ...(failed.length > 0 ? { errors: failed } : {}),
   });
-}
-
-// Triggers an ElevenLabs outbound call via the Twilio-connected number.
-// `agentPhoneNumberId` is an ElevenLabs phone-number id (phnum_…); it determines
-// the caller ID — there is no separate from_number field on this endpoint.
-async function placeOutboundCall(
-  lead: {
-    id: string;
-    name: string;
-    business_name: string;
-    industry: string;
-    email: string | null;
-    phone: string;
-  },
-  agentPhoneNumberId: string,
-) {
-  // Per-lead pre-call brief so the agent opens with context, not a blank.
-  const { brief } = researchLead({
-    name: lead.name,
-    email: lead.email,
-    businessName: lead.business_name,
-    industry: lead.industry,
-  });
-
-  const res = await fetch(
-    "https://api.elevenlabs.io/v1/convai/twilio/outbound-call",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "xi-api-key": process.env.ELEVENLABS_API_KEY!,
-      },
-      body: JSON.stringify({
-        agent_id: process.env.ELEVENLABS_AGENT_ID,
-        agent_phone_number_id: agentPhoneNumberId,
-        to_number: lead.phone,
-        // Injected into the agent prompt as dynamic variables.
-        conversation_initiation_client_data: {
-          dynamic_variables: {
-            lead_id: lead.id,
-            name: lead.name,
-            business_name: lead.business_name,
-            industry: lead.industry,
-            industry_hook: playbookForIndustry(lead.industry)?.valueHook ?? "",
-            lead_brief: brief,
-          },
-        },
-      }),
-    },
-  );
-  if (!res.ok) {
-    // Include the body — during setup this is what tells you *which* id or key is
-    // wrong. Truncated so a huge error page can't flood the logs.
-    const detail = await res.text().catch(() => "");
-    throw new Error(`ElevenLabs outbound ${res.status}: ${detail.slice(0, 300)}`);
-  }
-  return res.json();
 }

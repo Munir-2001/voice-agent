@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 // Endpoints that authenticate themselves (HMAC / shared secret) and are called
 // by external services (ElevenLabs, the cron scheduler) — never gate these on a
 // browser session, and skip the Supabase round-trip entirely for them.
-const SELF_AUTHED_API = ["/api/webhook", "/api/dial-tick"];
+const SELF_AUTHED_API = ["/api/webhook", "/api/dial-tick", "/api/test-call"];
 
 function isPublic(pathname: string): boolean {
   return pathname === "/login" || pathname.startsWith("/login/");
