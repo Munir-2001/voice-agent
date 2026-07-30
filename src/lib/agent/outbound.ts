@@ -72,5 +72,14 @@ export async function placeOutboundCall(
     const detail = await res.text().catch(() => "");
     throw new Error(`ElevenLabs outbound ${res.status}: ${detail.slice(0, 300)}`);
   }
-  return res.json();
+  // ElevenLabs returns HTTP 200 even when the underlying Twilio call is rejected
+  // (e.g. trial account, geo permissions) — the real status is in `success`.
+  const data = (await res.json().catch(() => ({}))) as {
+    success?: boolean;
+    message?: string;
+  };
+  if (data.success === false) {
+    throw new Error(`Call rejected: ${data.message ?? "unknown error"}`);
+  }
+  return data;
 }
