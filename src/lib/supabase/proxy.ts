@@ -78,7 +78,9 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     return NextResponse.redirect(redirectUrl);
   }
 
-  if (user && isPublic(pathname)) {
+  // Bounce signed-in users only away from the LOGIN page — not every public
+  // page. /business-profile is public but must stay reachable when logged in.
+  if (user && (pathname === "/login" || pathname.startsWith("/login/"))) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/overview";
     redirectUrl.search = "";
