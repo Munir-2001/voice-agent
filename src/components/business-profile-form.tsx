@@ -118,7 +118,10 @@ export function BusinessProfileForm() {
 
   return (
     <form onSubmit={submit} className="space-y-8">
-      <Section title="Business information">
+      <Section
+        title="Business information"
+        desc="Your business's official details, exactly as registered with the government (the business that will be making the calls)."
+      >
         <Field label="Legal business name" hint="Exactly as registered with the government">
           <Input value={form.legalName} onChange={(e) => set("legalName", e.target.value)} placeholder="Lending Success Pot LLC" />
         </Field>
@@ -161,7 +164,10 @@ export function BusinessProfileForm() {
         </Field>
       </Section>
 
-      <Section title="Business address">
+      <Section
+        title="Business address"
+        desc="Your registered business address — where the business is legally located."
+      >
         <Field label="Street address">
           <Input value={form.street} onChange={(e) => set("street", e.target.value)} placeholder="123 Main Street" />
         </Field>
@@ -186,7 +192,7 @@ export function BusinessProfileForm() {
         </div>
       </Section>
 
-      <Section title="Authorized representative" desc="A person Twilio can contact to confirm the business. They'll also complete a quick photo-ID + selfie check directly with the provider.">
+      <Section title="Authorized representative" desc="The business owner (or an authorized person from the business) our provider can contact to confirm it. This must be someone who can complete a quick photo-ID + selfie check — so enter the owner's details here, using their real name exactly as it appears on their government ID.">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="First name" hint="As on government ID">
             <Input value={form.repFirstName} onChange={(e) => set("repFirstName", e.target.value)} />
