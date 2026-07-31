@@ -9,6 +9,7 @@ import {
   Upload,
   Settings,
   Bot,
+  ShieldCheck,
 } from "lucide-react";
 import {
   Sidebar,
@@ -36,6 +37,9 @@ const NAV = [
 
 const MANAGE = [
   { title: "Agent behavior", href: "/agent", icon: Bot },
+  // Standalone public form (for the client) — opens in a new tab so the
+  // dashboard stays put.
+  { title: "Verification", href: "/business-profile", icon: ShieldCheck, newTab: true },
   { title: "Settings", href: "/settings", icon: Settings },
 ];
 
@@ -90,9 +94,14 @@ export function AppSidebar({
               {MANAGE.map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton
-                    isActive={isActive(item.href)}
+                    isActive={!item.newTab && isActive(item.href)}
                     tooltip={item.title}
-                    render={<Link href={item.href} />}
+                    render={
+                      <Link
+                        href={item.href}
+                        {...(item.newTab ? { target: "_blank", rel: "noreferrer" } : {})}
+                      />
+                    }
                   >
                     <item.icon className="size-4" />
                     <span>{item.title}</span>
