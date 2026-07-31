@@ -183,6 +183,52 @@ export async function sendLeadNotification(
 }
 
 /**
+ * Emails a submitted business-verification form (for Twilio Trust Hub) to the
+ * team so it can be entered into Twilio. Sent to EMAIL_NOTIFY, or
+ * BUSINESS_PROFILE_EMAIL if set.
+ */
+export async function sendBusinessProfileEmail(
+  fields: { label: string; value: string }[],
+  legalName: string,
+): Promise<{ sent: boolean; reason?: string }> {
+  if (!isEmailConfigured()) return { sent: false, reason: "email not configured" };
+  const to = (process.env.BUSINESS_PROFILE_EMAIL ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const recipients = to.length ? to : notifyRecipients();
+  if (recipients.length === 0) return { sent: false, reason: "no recipients configured" };
+
+  const fromName = process.env.EMAIL_FROM_NAME || COMPANY_NAME;
+  const fromAddr = process.env.SMTP_USER!;
+  const subject = `Twilio business verification — ${legalName || "submission"}`;
+
+  const text =
+    `Business verification details (enter into Twilio Trust Hub):\n\n` +
+    fields.map((f) => `${f.label}: ${f.value || "—"}`).join("\n");
+
+  const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a;max-width:620px;">
+  <p style="font-weight:600;">Twilio business verification submission</p>
+  <p style="color:#666;">Enter these into Twilio Trust Hub → Primary compliance profile.</p>
+  <table style="border-collapse:collapse;">${fields
+    .map(
+      (f) =>
+        `<tr><td style="padding:3px 14px 3px 0;color:#666;vertical-align:top;">${esc(
+          f.label,
+        )}</td><td style="padding:3px 0;font-weight:500;">${esc(f.value || "—")}</td></tr>`,
+    )
+    .join("")}</table>
+</div>`;
+
+  try {
+    await getTransport().sendMail({ from: `"${fromName}" <${fromAddr}>`, to: recipients, subject, html, text });
+    return { sent: true };
+  } catch (err) {
+    return { sent: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
  * Sends the welcome email. Never throws — returns a small result the caller can
  * log. A failure here must never break the post-call webhook.
  */

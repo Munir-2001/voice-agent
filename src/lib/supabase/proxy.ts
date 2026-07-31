@@ -9,10 +9,14 @@ const SELF_AUTHED_API = [
   "/api/dial-tick",
   "/api/test-call",
   "/api/test-email",
+  "/api/business-profile", // public form submission (same-origin + rate-limited)
 ];
 
+// Pages anyone can reach without signing in.
+const PUBLIC_PATHS = ["/login", "/business-profile"];
+
 function isPublic(pathname: string): boolean {
-  return pathname === "/login" || pathname.startsWith("/login/");
+  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
 // Refreshes the Supabase session cookie on every request and gates access:

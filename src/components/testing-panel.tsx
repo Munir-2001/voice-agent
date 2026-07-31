@@ -16,7 +16,19 @@ export function TestingPanel() {
   const [callBusy, setCallBusy] = useState(false);
   const [emailBusy, setEmailBusy] = useState(false);
 
-  const phoneValid = /^\+[1-9]\d{6,14}$/.test(phone.trim());
+  // Forgive missing "+"/country code: a plain 10-digit number → US (+1),
+  // 11 digits starting with 1 → +1…. Anything with a "+" is left as typed.
+  function normalizePhone(raw: string): string {
+    const t = raw.trim();
+    if (t.startsWith("+")) return t;
+    const digits = t.replace(/\D/g, "");
+    if (digits.length === 10) return `+1${digits}`;
+    if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+    return t;
+  }
+
+  const normalizedPhone = normalizePhone(phone);
+  const phoneValid = /^\+[1-9]\d{6,14}$/.test(normalizedPhone);
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
   async function placeTestCall() {
@@ -26,7 +38,7 @@ export function TestingPanel() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          toNumber: phone.trim(),
+          toNumber: normalizedPhone,
           name: "Rosemarie",
           businessName: "Lending Success Pot",
         }),
@@ -36,7 +48,7 @@ export function TestingPanel() {
         toast.error(data.error ?? "Call could not be placed");
         return;
       }
-      toast.success(`Calling ${phone.trim()}…`, {
+      toast.success(`Calling ${normalizedPhone}…`, {
         description: "Pick up — the agent will start talking.",
       });
     } catch {
