@@ -45,6 +45,31 @@ export function formatDateTime(iso: string): string {
   }
 }
 
+/**
+ * Date + time in the LEAD's own US timezone, with the zone abbreviation so the
+ * caller knows which clock it's on — e.g. "Mon, Aug 17, 2:00 PM EDT". Used for
+ * callback times so you know exactly when to call back in the prospect's hours.
+ */
+export function formatDateTimeInTz(
+  iso: string | null | undefined,
+  timezone: string | null | undefined,
+): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleString("en-US", {
+      timeZone: timezone || "America/New_York",
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    });
+  } catch {
+    return "—";
+  }
+}
+
 export function initials(name: string): string {
   return name
     .split(" ")

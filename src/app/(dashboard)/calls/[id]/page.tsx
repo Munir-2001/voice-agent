@@ -7,6 +7,7 @@ import {
   Clock,
   Calendar,
   Hash,
+  CalendarClock,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +17,7 @@ import { CallPlayer } from "@/components/call-player";
 import { MarkContactedButton } from "@/components/mark-contacted";
 import { FadeIn } from "@/components/motion";
 import { getCallById, getLeadById } from "@/lib/data";
-import { formatPhone, formatDuration, formatDateTime } from "@/lib/format";
+import { formatPhone, formatDuration, formatDateTime, formatDateTimeInTz } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -153,6 +154,11 @@ export default async function CallDetailPage({
               <Detail icon={<Hash className="size-4" />} label="From number">
                 <span className="font-mono">{formatPhone(call.numberUsed)}</span>
               </Detail>
+              {call.callbackAt && (
+                <Detail icon={<CalendarClock className="size-4" />} label="Callback">
+                  {formatDateTimeInTz(call.callbackAt, lead?.timezone)}
+                </Detail>
+              )}
             </CardContent>
           </Card>
 
@@ -164,6 +170,13 @@ export default async function CallDetailPage({
                   <p className="text-xs text-muted-foreground">
                     Call {lead.name.trim()} back while the interest is warm.
                   </p>
+                  {lead.callbackAt && (
+                    <p className="text-xs font-medium">
+                      Requested time:{" "}
+                      {formatDateTimeInTz(lead.callbackAt, lead.timezone)}{" "}
+                      <span className="text-muted-foreground">(their local time)</span>
+                    </p>
+                  )}
                   <div className="flex gap-2">
                     <Button
                       nativeButton={false}

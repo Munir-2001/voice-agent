@@ -15,19 +15,26 @@ export interface Classification {
   outcome: CallOutcome;
   summary: string;
   callbackAt: string | null;
+  timezone: string | null; // IANA, only if the prospect stated where they are
 }
 
 const SYSTEM_PROMPT = `You classify a completed outbound sales call transcript for a business-financing campaign.
-Return STRICT JSON: {"outcome": one of ["interested","not_interested","callback","voicemail","no_answer","opted_out"], "summary": "2 sentences max", "callbackAt": ISO8601 or null}.
-Rules: if the prospect asked to be removed or to stop calling, outcome MUST be "opted_out". If they asked to be called at a specific time, outcome is "callback" and set callbackAt. Never invent interest that isn't there.`;
+Return STRICT JSON: {"outcome": one of ["interested","not_interested","callback","voicemail","no_answer","opted_out"], "summary": "2 sentences max", "callbackAt": ISO8601 or null, "timezone": IANA timezone string or null}.
+Rules: if the prospect asked to be removed or to stop calling, outcome MUST be "opted_out". If they asked to be called at a specific time, outcome is "callback" and set callbackAt. Never invent interest that isn't there.
+For timezone: if the prospect states where they are (a city, state, or region, e.g. "I'm in Texas", "we're out in Phoenix"), infer their IANA timezone (Texas->"America/Chicago", California->"America/Los_Angeles", Arizona->"America/Phoenix", New York->"America/New_York", etc.) and return it in "timezone". If they never say where they are, return null.
+For callbackAt: resolve any relative time the prospect gives ("tomorrow at 2pm", "Monday morning", "after 3") against the "Current time" provided below, in the PROSPECT'S timezone — use their STATED location's timezone if they gave one, otherwise the assumed timezone provided. Output a full ISO8601 timestamp WITH that timezone's UTC offset (e.g. 2026-08-17T14:00:00-05:00). "morning"≈9:00, "afternoon"≈14:00, "evening"≈17:00 local unless they say otherwise. If no specific time was requested, callbackAt is null.`;
 
 /**
  * Classify a transcript via a Groq (OpenAI-compatible) call.
  * Falls back to a safe default on any error so the webhook never throws.
  * Requires GROQ_API_KEY and (optionally) GROQ_MODEL / GROQ_BASE_URL.
+ *
+ * `opts.now` + `opts.timezone` let the model turn relative callback requests
+ * into an accurate absolute time in the lead's local (US) hours.
  */
 export async function classifyTranscript(
   transcript: TranscriptTurn[],
+  opts?: { now?: Date; timezone?: string },
 ): Promise<Classification> {
   // Guardrail first — deterministic, model-independent.
   if (hasOptOutLanguage(transcript)) {
@@ -35,6 +42,7 @@ export async function classifyTranscript(
       outcome: "opted_out",
       summary: "Prospect requested removal from the calling list.",
       callbackAt: null,
+      timezone: null,
     };
   }
 
@@ -44,12 +52,33 @@ export async function classifyTranscript(
 
   if (!apiKey) {
     // No key configured (e.g. local UI dev) — return a neutral placeholder.
-    return { outcome: "no_answer", summary: "Not classified (no LLM key).", callbackAt: null };
+    return {
+      outcome: "no_answer",
+      summary: "Not classified (no LLM key).",
+      callbackAt: null,
+      timezone: null,
+    };
   }
 
   const text = transcript
     .map((t) => `${t.role === "agent" ? "AGENT" : "PROSPECT"}: ${t.text}`)
     .join("\n");
+
+  // Give the model the prospect's current local time so it can resolve relative
+  // callback requests ("tomorrow at 2pm") into an accurate absolute timestamp.
+  const now = opts?.now ?? new Date();
+  const timezone = opts?.timezone || "America/New_York";
+  const nowLocal = now.toLocaleString("en-US", {
+    timeZone: timezone,
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+  const contextPrompt = `Current time (UTC): ${now.toISOString()}. Assumed prospect timezone from their phone area code (may be wrong if they've moved): ${timezone} — locally that's ${nowLocal}. Resolve any callback time against the current time, preferring the prospect's STATED location timezone if they mention one.`;
 
   try {
     const res = await fetch(`${baseUrl}/chat/completions`, {
@@ -64,6 +93,7 @@ export async function classifyTranscript(
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: contextPrompt },
           { role: "user", content: text },
         ],
       }),
@@ -72,12 +102,18 @@ export async function classifyTranscript(
     if (!res.ok) throw new Error(`Groq ${res.status}`);
     const data = await res.json();
     const parsed = JSON.parse(data.choices[0].message.content) as Classification;
-    return parsed;
+    return {
+      outcome: parsed.outcome,
+      summary: parsed.summary,
+      callbackAt: parsed.callbackAt ?? null,
+      timezone: parsed.timezone ?? null,
+    };
   } catch {
     return {
       outcome: "no_answer",
       summary: "Classification unavailable; needs manual review.",
       callbackAt: null,
+      timezone: null,
     };
   }
 }

@@ -31,6 +31,17 @@ export function timezoneForAreaCode(code: string | null): string {
   return AREA_CODE_TZ[code] ?? DEFAULT_TZ;
 }
 
+/** True if `tz` is a real IANA timezone (so we never store LLM garbage). */
+export function isValidTimeZone(tz: string | null | undefined): boolean {
+  if (!tz) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * True when `now` falls inside [startHour, endHour) in the lead's local
  * timezone, Monday–Friday. Hours are 24h local (e.g. 9 and 18).

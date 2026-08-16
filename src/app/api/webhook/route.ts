@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { classifyTranscript } from "@/lib/classify";
+import { isValidTimeZone } from "@/lib/timezone";
 import type { TranscriptTurn } from "@/lib/types";
 import { verifyWebhookSignature, clientIp, apiError } from "@/lib/security";
 import { rateLimit } from "@/lib/rate-limit";
@@ -89,7 +90,22 @@ export async function POST(request: Request) {
     .maybeSingle();
   if (existing) return NextResponse.json({ ok: true, deduped: true });
 
-  const { outcome, summary, callbackAt } = await classifyTranscript(transcript);
+  // Fetch the lead once: its timezone lets the classifier resolve relative
+  // callback times into the prospect's local (US) hours; the other fields feed
+  // the warm-lead emails below.
+  const { data: lead } = leadId
+    ? await supabase
+        .from("leads")
+        .select("name, business_name, email, phone, timezone")
+        .eq("id", leadId)
+        .maybeSingle()
+    : { data: null };
+
+  const { outcome, summary, callbackAt, timezone: statedTimezone } =
+    await classifyTranscript(transcript, {
+      now: new Date(),
+      timezone: (lead?.timezone as string) ?? undefined,
+    });
 
   await supabase.from("calls").insert({
     lead_id: leadId,
@@ -101,6 +117,9 @@ export async function POST(request: Request) {
     outcome,
     summary,
     number_used: numberUsed,
+    // Store on the call too, so even a standalone test call (no lead) shows the
+    // extracted callback time on the call detail page.
+    callback_at: callbackAt,
   });
 
   if (leadId) {
@@ -111,38 +130,38 @@ export async function POST(request: Request) {
         .upsert({ phone: toNumber, reason: "opt_out" }, { onConflict: "phone" });
     }
     if (callbackAt) patch.callback_at = callbackAt;
+    // The prospect told us where they are → correct the lead's timezone (more
+    // reliable than the area-code guess), so future scheduling uses real hours.
+    if (isValidTimeZone(statedTimezone)) patch.timezone = statedTimezone;
     await supabase.from("leads").update(patch).eq("id", leadId);
 
     // Warm lead → (1) email the lead the welcome/next-steps message, and
     // (2) alert the internal team (Naveed / Rosemarie). Both best-effort — email
-    // must never break the webhook.
-    if (QUALIFIED.includes(outcome)) {
-      const { data: lead } = await supabase
-        .from("leads")
-        .select("name, business_name, email, phone")
-        .eq("id", leadId)
-        .maybeSingle();
-      if (lead) {
-        const name = (lead.name as string) ?? "";
-        const businessName = (lead.business_name as string) ?? "";
-        const email = (lead.email as string) ?? null;
+    // must never break the webhook. Reuses the lead fetched above.
+    if (QUALIFIED.includes(outcome) && lead) {
+      const name = (lead.name as string) ?? "";
+      const businessName = (lead.business_name as string) ?? "";
+      const email = (lead.email as string) ?? null;
 
-        if (email) {
-          const r = await sendWelcomeEmail({ name, businessName, email });
-          if (!r.sent) console.error("welcome email skipped:", r.reason);
-        }
-
-        const n = await sendLeadNotification({
-          name,
-          businessName,
-          phone: (lead.phone as string) ?? "",
-          email,
-          outcome,
-          summary,
-          callbackAt,
-        });
-        if (!n.sent) console.error("lead notification skipped:", n.reason);
+      if (email) {
+        const r = await sendWelcomeEmail({ name, businessName, email });
+        if (!r.sent) console.error("welcome email skipped:", r.reason);
       }
+
+      const n = await sendLeadNotification({
+        name,
+        businessName,
+        phone: (lead.phone as string) ?? "",
+        email,
+        outcome,
+        summary,
+        callbackAt,
+        // Prefer the timezone the prospect stated on the call; else what's stored.
+        timezone: isValidTimeZone(statedTimezone)
+          ? statedTimezone
+          : ((lead.timezone as string) ?? null),
+      });
+      if (!n.sent) console.error("lead notification skipped:", n.reason);
     }
   }
 

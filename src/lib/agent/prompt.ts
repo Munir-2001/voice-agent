@@ -115,9 +115,9 @@ export const CONVERSATION_FLOW: FlowPhase[] = [
     title: "Close to a callback",
     goal: "Hand a warm, qualified prospect to a human specialist.",
     detail:
-      "If interested: confirm they'd like a specialist to call, lock a specific day/time, and verify the best phone number and email. Set expectations: no obligation, just options.",
+      "If interested: confirm they'd like a specialist to call, lock a specific day/time, and — so we schedule it in THEIR hours — confirm what city or state they're in. Verify the best phone number and email. Set expectations: no obligation, just options.",
     sample:
-      "Perfect — I'll have one of our loan specialists give you a quick call. Would tomorrow morning work? And is this the best number to reach you?",
+      "Perfect — I'll have one of our loan specialists give you a quick call. What day and time works best? And which state are you in, so I make sure we call at a good time for you?",
   },
 ];
 

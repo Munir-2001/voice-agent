@@ -52,9 +52,12 @@ export async function POST(request: Request) {
       businessName: businessName ?? "Cedar Comfort HVAC",
       phone: "+15551234567",
       email: "alex@example.com",
-      outcome: "interested",
+      outcome: "callback",
       summary:
         "This is a TEST of your interested-lead alert — no real lead. If you received this, EMAIL_NOTIFY is working.",
+      // Sample preferred time (~18h out) so you can see the callback-time row.
+      callbackAt: new Date(Date.now() + 18 * 3600 * 1000).toISOString(),
+      timezone: "America/Los_Angeles",
     });
     if (!result.sent) return apiError(502, result.reason ?? "Could not send");
     return NextResponse.json({ ok: true, kind, sentTo: recipients });

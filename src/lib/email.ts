@@ -12,6 +12,7 @@ import "server-only";
 // 500s.
 
 import nodemailer, { type Transporter } from "nodemailer";
+import { formatDateTimeInTz } from "@/lib/format";
 import {
   COMPANY_NAME,
   SENDER_NAME,
@@ -120,6 +121,7 @@ interface LeadNotification {
   outcome: string;
   summary: string;
   callbackAt?: string | null;
+  timezone?: string | null; // lead's IANA tz, for a human-readable callback time
 }
 
 /**
@@ -148,7 +150,11 @@ export async function sendLeadNotification(
     ["Email", n.email || "—"],
     ["Outcome", n.outcome],
   ];
-  if (n.callbackAt) rows.push(["Requested callback", n.callbackAt]);
+  if (n.callbackAt)
+    rows.push([
+      "Preferred callback time",
+      `${formatDateTimeInTz(n.callbackAt, n.timezone)} (their local time)`,
+    ]);
 
   const text = `New interested lead\n\n${rows
     .map(([k, v]) => `${k}: ${v}`)

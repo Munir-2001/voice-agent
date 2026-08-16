@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { Phone, FileText, Building2, Sparkles } from "lucide-react";
+import { Phone, FileText, Building2, Sparkles, CalendarClock } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Stagger, StaggerItem } from "@/components/motion";
 import { MarkContactedButton } from "@/components/mark-contacted";
 import { getInterestedLeads } from "@/lib/data";
-import { formatPhone, relativeTime, initials } from "@/lib/format";
+import { formatPhone, relativeTime, initials, formatDateTimeInTz } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +53,19 @@ export default async function InterestedPage() {
                     </span>
                   )}
                 </div>
+
+                {lead.callbackAt && (
+                  <div className="mt-4 flex items-center gap-2 rounded-lg border border-warning/30 bg-warning-muted px-3 py-2">
+                    <CalendarClock className="size-4 shrink-0 text-warning-ink" />
+                    <span className="text-sm text-warning-ink">
+                      Call back:{" "}
+                      <strong className="font-semibold">
+                        {formatDateTimeInTz(lead.callbackAt, lead.timezone)}
+                      </strong>{" "}
+                      <span className="opacity-70">(their local time)</span>
+                    </span>
+                  </div>
+                )}
 
                 {call?.summary && (
                   <p className="mt-4 line-clamp-3 text-sm leading-relaxed text-muted-foreground">
