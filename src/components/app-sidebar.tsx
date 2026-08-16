@@ -10,6 +10,7 @@ import {
   Settings,
   Bot,
   ShieldCheck,
+  PhoneCall,
 } from "lucide-react";
 import {
   Sidebar,
@@ -30,6 +31,7 @@ import { initials } from "@/lib/format";
 
 const NAV = [
   { title: "Overview", href: "/overview", icon: LayoutDashboard },
+  { title: "Call log", href: "/calls", icon: PhoneCall },
   { title: "Interested", href: "/interested", icon: Sparkles },
   { title: "All leads", href: "/leads", icon: Users },
   { title: "Upload", href: "/upload", icon: Upload },

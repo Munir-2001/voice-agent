@@ -86,13 +86,37 @@ export async function runDialTick(
   const remainingCap = settings.daily_cap - placedToday;
   if (remainingCap <= 0) return { skipped: "daily cap reached" };
 
-  // Candidate leads not yet exhausted, in upload order so the list is worked
-  // top-to-bottom ("one by one down the list").
+  // Even-spread pacing (scheduled ticks only): spread `daily_cap` calls evenly
+  // across the calling window instead of front-loading them at the window's
+  // open. gap = window-minutes / daily-cap; we place only if the most recent
+  // placement today was at least `gap` ago. A manual "Call now" bypasses this.
+  if (!manual) {
+    const windowMinutes = Math.max(1, (endHour - startHour) * 60);
+    const gapMs = (windowMinutes / settings.daily_cap) * 60_000;
+    const { data: recent } = await supabase
+      .from("leads")
+      .select("last_called_at")
+      .gte("last_called_at", startOfDay.toISOString())
+      .order("last_called_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const lastMs = recent?.last_called_at
+      ? new Date(recent.last_called_at).getTime()
+      : 0;
+    if (lastMs && now.getTime() - lastMs < gapMs) {
+      return { skipped: "pacing: waiting for next slot" };
+    }
+  }
+
+  // Candidate leads not yet exhausted. Order by attempts first so EVERY lead
+  // gets a first call before anyone is retried (maximizes unique reach across
+  // the list), then by upload order so it works top-to-bottom.
   const { data: candidates } = await supabase
     .from("leads")
     .select("*")
     .in("status", ["pending", "callback", "no_answer"])
     .lt("attempts", settings.max_attempts)
+    .order("attempts", { ascending: true })
     .order("created_at", { ascending: true })
     .limit(50);
 
