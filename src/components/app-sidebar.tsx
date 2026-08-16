@@ -39,7 +39,7 @@ const NAV = [
 ];
 
 const MANAGE = [
-  { title: "Preview (sample)", href: "/preview", icon: FlaskConical },
+  { title: "Preview", href: "/preview", icon: FlaskConical },
   { title: "Agent behavior", href: "/agent", icon: Bot },
   // Standalone public form (for the client) — opens in a new tab so the
   // dashboard stays put.
