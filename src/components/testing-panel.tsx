@@ -12,6 +12,9 @@ import { Button } from "@/components/ui/button";
 // email, gated to the signed-in session — so this panel only works logged in.
 export function TestingPanel() {
   const [phone, setPhone] = useState("");
+  const [callName, setCallName] = useState("Rosemarie");
+  const [callBusiness, setCallBusiness] = useState("Lending Success Spot");
+  const [callIndustry, setCallIndustry] = useState("HVAC");
   const [email, setEmail] = useState("");
   const [callBusy, setCallBusy] = useState(false);
   const [emailBusy, setEmailBusy] = useState(false);
@@ -40,8 +43,9 @@ export function TestingPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           toNumber: normalizedPhone,
-          name: "Rosemarie",
-          businessName: "Lending Success Pot",
+          name: callName.trim() || "there",
+          businessName: callBusiness.trim(),
+          industry: callIndustry.trim(),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -50,7 +54,8 @@ export function TestingPanel() {
         return;
       }
       toast.success(`Calling ${normalizedPhone}…`, {
-        description: "Pick up — the agent will start talking.",
+        description:
+          "Pick up — the agent should greet you by this name and reference the business/industry. Afterward it appears in the Call log.",
       });
     } catch {
       toast.error("Network error — could not reach the server");
@@ -136,6 +141,46 @@ export function TestingPanel() {
           </div>
           <p className="text-xs text-muted-foreground">
             E.164 format (with country code). The agent will call and talk live.
+          </p>
+          {/* Lead data sent to the agent — proves it reads dynamic variables. */}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="space-y-1">
+              <Label htmlFor="test-name" className="text-xs text-muted-foreground">
+                Name
+              </Label>
+              <Input
+                id="test-name"
+                placeholder="Rosemarie"
+                value={callName}
+                onChange={(e) => setCallName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="test-business" className="text-xs text-muted-foreground">
+                Business
+              </Label>
+              <Input
+                id="test-business"
+                placeholder="Lending Success Spot"
+                value={callBusiness}
+                onChange={(e) => setCallBusiness(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="test-industry" className="text-xs text-muted-foreground">
+                Industry
+              </Label>
+              <Input
+                id="test-industry"
+                placeholder="HVAC"
+                value={callIndustry}
+                onChange={(e) => setCallIndustry(e.target.value)}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            This is the lead data sent to the agent. If it greets you by this name
+            and mentions the business/industry, it&apos;s reading the data correctly.
           </p>
         </div>
 
