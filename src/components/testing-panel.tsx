@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Loader2, PhoneOutgoing, Mail } from "lucide-react";
+import { Loader2, PhoneOutgoing, Mail, BellRing } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,6 +15,7 @@ export function TestingPanel() {
   const [email, setEmail] = useState("");
   const [callBusy, setCallBusy] = useState(false);
   const [emailBusy, setEmailBusy] = useState(false);
+  const [notifyBusy, setNotifyBusy] = useState(false);
 
   // Forgive missing "+"/country code: a plain 10-digit number → US (+1),
   // 11 digits starting with 1 → +1…. Anything with a "+" is left as typed.
@@ -81,6 +82,32 @@ export function TestingPanel() {
     }
   }
 
+  async function sendTestNotification() {
+    setNotifyBusy(true);
+    try {
+      const res = await fetch("/api/test-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "notify" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error ?? "Notification could not be sent");
+        return;
+      }
+      const to: string[] = Array.isArray(data.sentTo) ? data.sentTo : [];
+      toast.success("Test notification sent", {
+        description: to.length
+          ? `Sent to: ${to.join(", ")}. Check the inbox(es) and spam.`
+          : "Check the EMAIL_NOTIFY inboxes (and spam).",
+      });
+    } catch {
+      toast.error("Network error — could not reach the server");
+    } finally {
+      setNotifyBusy(false);
+    }
+  }
+
   return (
     <Card className="border-warning/30 bg-warning/[0.03]">
       <CardHeader>
@@ -130,6 +157,25 @@ export function TestingPanel() {
           </div>
           <p className="text-xs text-muted-foreground">
             Sends the exact email an interested lead receives.
+          </p>
+        </div>
+
+        {/* Test team notification */}
+        <div className="space-y-2">
+          <Label>Test notification — alert the team (EMAIL_NOTIFY)</Label>
+          <Button
+            variant="outline"
+            onClick={sendTestNotification}
+            disabled={notifyBusy}
+            className="gap-1.5"
+          >
+            {notifyBusy ? <Loader2 className="size-4 animate-spin" /> : <BellRing className="size-4" />}
+            Send test notification
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Sends a sample &ldquo;new interested lead&rdquo; alert to everyone on
+            the EMAIL_NOTIFY list — the same email you&apos;ll get when a real
+            lead qualifies. No call placed.
           </p>
         </div>
       </CardContent>

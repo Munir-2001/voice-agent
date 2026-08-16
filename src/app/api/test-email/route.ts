@@ -1,18 +1,27 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { sendWelcomeEmail, isEmailConfigured } from "@/lib/email";
+import {
+  sendWelcomeEmail,
+  sendLeadNotification,
+  notifyRecipients,
+  isEmailConfigured,
+} from "@/lib/email";
 import { isSameOrigin, hasValidCronSecret, clientIp, apiError } from "@/lib/security";
 import { rateLimit } from "@/lib/rate-limit";
 import { getSessionUser } from "@/lib/auth";
 
-// Sends the real welcome email to a chosen address so you can see exactly what
-// an interested lead receives — without placing a call. Gated: dashboard session
-// OR cron secret.
+// Verifies email end-to-end WITHOUT placing a call. Two kinds:
+//   • "welcome" (default) → the real welcome email a lead receives, to toEmail.
+//   • "notify"            → the internal "new interested lead" alert, to the
+//                           EMAIL_NOTIFY team list — so you can confirm those
+//                           alerts actually land before going live.
+// Gated: dashboard session OR cron secret.
 
 export const dynamic = "force-dynamic";
 
 const Body = z.object({
-  toEmail: z.string().email(),
+  kind: z.enum(["welcome", "notify"]).optional().default("welcome"),
+  toEmail: z.string().email().optional(),
   name: z.string().max(80).optional(),
   businessName: z.string().max(120).optional(),
 });
@@ -29,9 +38,30 @@ export async function POST(request: Request) {
   if (!isEmailConfigured()) return apiError(503, "Email (SMTP) isn't configured yet.");
 
   const parsed = Body.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) return apiError(400, "Provide a valid toEmail");
-  const { toEmail, name, businessName } = parsed.data;
+  if (!parsed.success) return apiError(400, "Invalid request");
+  const { kind, toEmail, name, businessName } = parsed.data;
 
+  // Team-notification test → goes to the EMAIL_NOTIFY list, no lead address needed.
+  if (kind === "notify") {
+    const recipients = notifyRecipients();
+    if (recipients.length === 0) {
+      return apiError(400, "No EMAIL_NOTIFY recipients configured");
+    }
+    const result = await sendLeadNotification({
+      name: name ?? "Alex Morgan (TEST)",
+      businessName: businessName ?? "Cedar Comfort HVAC",
+      phone: "+15551234567",
+      email: "alex@example.com",
+      outcome: "interested",
+      summary:
+        "This is a TEST of your interested-lead alert — no real lead. If you received this, EMAIL_NOTIFY is working.",
+    });
+    if (!result.sent) return apiError(502, result.reason ?? "Could not send");
+    return NextResponse.json({ ok: true, kind, sentTo: recipients });
+  }
+
+  // Welcome-email test → needs a destination address.
+  if (!toEmail) return apiError(400, "Provide a valid toEmail");
   const result = await sendWelcomeEmail({
     name: name ?? "there",
     businessName: businessName ?? "",
@@ -39,5 +69,5 @@ export async function POST(request: Request) {
   });
   // Endpoint is gated, so surfacing the SMTP reason here is safe and useful.
   if (!result.sent) return apiError(502, result.reason ?? "Could not send");
-  return NextResponse.json({ ok: true, sent: toEmail });
+  return NextResponse.json({ ok: true, kind, sent: toEmail });
 }
