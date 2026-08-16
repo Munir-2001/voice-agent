@@ -152,6 +152,14 @@ export async function runDialTick(
     return { skipped: "no caller numbers configured" };
   }
 
+  // Nothing to place — report WHICH gate emptied the list so the caller (and the
+  // "Call now" button) can show an accurate reason instead of a vague catch-all.
+  if (eligible.length === 0) {
+    if (!candidates || candidates.length === 0) return { skipped: "no eligible leads" };
+    if (inWindow.length === 0) return { skipped: "outside calling window" };
+    return { skipped: "all remaining leads suppressed" };
+  }
+
   const placed: string[] = [];
   const failed: { id: string; error: string }[] = [];
 

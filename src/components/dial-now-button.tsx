@@ -32,6 +32,12 @@ export function DialNowButton() {
         // Human-readable reasons for "nothing was dialed".
         const reason =
           {
+            "outside calling window":
+              "Outside calling hours. The agent only dials Mon–Fri, 8am–9pm in each lead's local time — so nothing goes out on weekends or off-hours, even from here.",
+            "no eligible leads":
+              "No callable leads left — the list is empty, or everyone has already been called or handled.",
+            "all remaining leads suppressed":
+              "Every remaining lead is on the do-not-call / opt-out list.",
             "daily cap reached": "Daily call cap already reached for today.",
             "campaign paused": "Campaign is paused.",
             "no caller numbers configured": "No caller number is configured.",
@@ -41,8 +47,8 @@ export function DialNowButton() {
       } else if (data.failed) {
         toast.error(`Could not place ${data.failed} calls — check the logs.`);
       } else {
-        toast.message("No eligible leads", {
-          description: "Nobody is callable right now (window, attempts, or list empty).",
+        toast.message("No calls placed", {
+          description: "Nobody is callable right now.",
         });
       }
     } catch {
