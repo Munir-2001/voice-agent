@@ -27,31 +27,49 @@ export async function POST(request: Request) {
     return apiError(401, "Invalid signature");
   }
 
-  let payload: Record<string, unknown> & {
-    conversation_id?: string;
-    id?: string;
-    metadata?: Record<string, unknown>;
-    dynamic_variables?: Record<string, unknown>;
-    recording_url?: string | null;
-    transcript?: unknown[];
-  };
+  let payload: Record<string, unknown>;
   try {
     payload = JSON.parse(raw);
   } catch {
     return apiError(400, "Invalid payload");
   }
-  const meta = (payload.metadata ?? {}) as Record<string, unknown>;
-  const dyn = (payload.dynamic_variables ?? {}) as Record<string, unknown>;
-  const conversationId = (payload.conversation_id ?? payload.id) as string | undefined;
+
+  // ElevenLabs' post_call_transcription webhook nests everything under `data`.
+  // Fall back to the top level so a flattened/proxied payload still parses.
+  const evt = ((payload.data as Record<string, unknown>) ?? payload) as Record<
+    string,
+    unknown
+  >;
+  const meta = (evt.metadata ?? {}) as Record<string, unknown>;
+  const init = (evt.conversation_initiation_client_data ?? {}) as Record<
+    string,
+    unknown
+  >;
+  // dynamic_variables live under conversation_initiation_client_data on real
+  // payloads; tolerate a top-level copy too.
+  const dyn = (init.dynamic_variables ??
+    evt.dynamic_variables ??
+    {}) as Record<string, unknown>;
+
+  const conversationId = (evt.conversation_id ??
+    evt.id ??
+    payload.conversation_id) as string | undefined;
   if (!conversationId) return apiError(400, "Invalid payload");
 
-  const leadId = (meta.lead_id ?? dyn.lead_id) as string | undefined;
+  const leadId = (dyn.lead_id ?? meta.lead_id) as string | undefined;
   const durationSecs = (meta.call_duration_secs as number) ?? 0;
-  const recordingUrl = (payload.recording_url ?? null) as string | null;
-  const numberUsed = (meta.from_number as string) ?? "";
-  const toNumber = meta.to_number as string | undefined;
+  // Recordings arrive on a SEPARATE post_call_audio webhook — never in this one.
+  const recordingUrl = (evt.recording_url ?? null) as string | null;
 
-  const transcript: TranscriptTurn[] = ((payload.transcript ?? []) as Array<{
+  // On phone calls the numbers are nested under metadata.phone_call (shape
+  // differs Twilio vs SIP); fall back to older flat fields.
+  const phoneCall = (meta.phone_call ?? {}) as Record<string, unknown>;
+  const numberUsed = (phoneCall.agent_number ?? meta.from_number ?? "") as string;
+  const toNumber = (phoneCall.external_number ?? meta.to_number) as
+    | string
+    | undefined;
+
+  const transcript: TranscriptTurn[] = ((evt.transcript ?? []) as Array<{
     role: string;
     message: string;
     time_in_call_secs?: number;
