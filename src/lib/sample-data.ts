@@ -59,6 +59,7 @@ export const leads: Lead[] = [
     status: "callback",
     attempts: 1,
     lastCalledAt: T(12, 40),
+    callbackAt: DAY(17, 15), // asked to be called back after 3pm Central
     consentSource: "web-form",
     uploadedAt: DAY(15),
   },
@@ -115,6 +116,7 @@ export const leads: Lead[] = [
     status: "callback",
     attempts: 1,
     lastCalledAt: T(14, 12),
+    callbackAt: DAY(18, 9), // wants a call the next morning
     consentSource: "web-form",
     uploadedAt: DAY(15),
   },
