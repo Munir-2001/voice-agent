@@ -3,6 +3,7 @@ import { Phone, PhoneOutgoing, Sparkles, Clock, ChevronRight, ArrowRight } from 
 import { StatCard } from "@/components/stat-card";
 import { CampaignHero } from "@/components/campaign-hero";
 import { LiveCallMonitor } from "@/components/live-call-monitor";
+import { AutoRefresh } from "@/components/auto-refresh";
 import { LiveActivityFeed, type ActivityItem } from "@/components/live-activity-feed";
 import { CallsChart } from "@/components/calls-chart";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,6 +39,8 @@ export default async function OverviewPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
+      {/* Keeps the call monitor + activity feed live without a manual reload. */}
+      <AutoRefresh intervalMs={15_000} />
       <FadeIn>
         <CampaignHero
           callsToday={stats.callsToday}

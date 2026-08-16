@@ -102,12 +102,14 @@ export function SettingsForm({ settings }: { settings: CampaignSettings }) {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Spread dials across the day to protect number reputation. Kept low so
-            carriers don&apos;t flag your caller ID.
+            The scheduler runs once a minute. &ldquo;Calls per tick&rdquo; is how
+            many dials it places each time — set it to <strong>1</strong> for a
+            steady one-call-per-minute pace. &ldquo;Daily cap&rdquo; is the hard
+            stop for the day. Kept low so carriers don&apos;t flag your caller ID.
           </p>
           <div className="grid grid-cols-3 gap-4">
             <NumField id="cap" label="Daily cap" value={form.dailyCap} onChange={(v) => set("dailyCap", v)} />
-            <NumField id="tick" label="Calls / 15 min" value={form.callsPerTick} onChange={(v) => set("callsPerTick", v)} />
+            <NumField id="tick" label="Calls per tick" value={form.callsPerTick} onChange={(v) => set("callsPerTick", v)} />
             <NumField id="attempts" label="Max attempts" value={form.maxAttempts} onChange={(v) => set("maxAttempts", v)} />
           </div>
         </CardContent>

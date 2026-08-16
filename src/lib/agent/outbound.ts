@@ -15,16 +15,26 @@ export interface OutboundLead {
 }
 
 // The caller-ID pool = ElevenLabs phone-number ids (phnum_…). The outbound API
-// derives the caller ID from agent_phone_number_id, so rotation happens on ids.
+// derives the caller ID from agent_phone_number_id, so rotation happens on these
+// ids — NOT on the raw Twilio E.164 numbers (TWILIO_NUMBER_* are not read here).
+//
+// Sources are merged (and de-duplicated, order preserved) so any convention works:
+//   • ELEVENLABS_PHONE_NUMBER_IDS  — comma-separated list (preferred)
+//   • ELEVENLABS_PHONE_NUMBER_ID   — single primary id
+//   • ELEVENLABS_PHONE_NUMBER_ID_2 / _ID_3 — extra ids for rotation
 export function callerNumberIds(): string[] {
-  return (
-    process.env.ELEVENLABS_PHONE_NUMBER_IDS ??
-    process.env.ELEVENLABS_PHONE_NUMBER_ID ??
-    ""
-  )
+  const merged = [
+    process.env.ELEVENLABS_PHONE_NUMBER_IDS,
+    process.env.ELEVENLABS_PHONE_NUMBER_ID,
+    process.env.ELEVENLABS_PHONE_NUMBER_ID_2,
+    process.env.ELEVENLABS_PHONE_NUMBER_ID_3,
+  ]
+    .filter(Boolean)
+    .join(",")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+  return [...new Set(merged)];
 }
 
 // Triggers an ElevenLabs outbound call. `agentPhoneNumberId` (phnum_…) sets the

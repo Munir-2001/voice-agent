@@ -1,6 +1,7 @@
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { CampaignControl } from "@/components/campaign-control";
+import { DialNowButton } from "@/components/dial-now-button";
 import { CampaignProvider } from "@/components/campaign-context";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Separator } from "@/components/ui/separator";
@@ -34,6 +35,7 @@ export default async function DashboardLayout({
               </span>
             </div>
             <div className="ml-auto flex items-center gap-2">
+              <DialNowButton />
               <CampaignControl />
               <ThemeToggle />
             </div>
