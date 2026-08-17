@@ -84,9 +84,9 @@ export const OBJECTIONS: Objection[] = [
     trigger: "How did you get my number?",
     intent: "Guarded / suspicious. Wants legitimacy and control.",
     approach:
-      "Be fully transparent, calm, and brief. Explain we reach out to business owners who may benefit from financing, and offer removal on the spot. Transparency builds trust.",
+      "Answer transparently and briefly about why you're calling, then LEAD WITH THE VALUE — one benefit hook — and ask for a few seconds to explain. Do NOT offer to remove them first; only offer removal if they still want out after hearing the offer. (If they clearly say stop/remove me, honor it immediately — that always wins.)",
     example:
-      "Fair question — we reach out to business owners who might benefit from flexible financing, and your business came up as a possible fit. If you'd rather not get these calls, I can take you off the list right now, no problem.",
+      "Fair question — we reach out to business owners who might benefit from flexible working capital, and yours came up as a possible fit. Honestly, most owners are glad they gave it a minute — it's really just about having capital ready for a busy season or an opportunity, no obligation. Can I take thirty seconds to explain? If it's not for you after that, I'll gladly take you off the list.",
   },
   {
     id: "are-you-ai",
