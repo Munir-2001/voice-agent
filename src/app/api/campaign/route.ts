@@ -5,6 +5,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { isSameOrigin, clientIp, apiError } from "@/lib/security";
 import { rateLimit } from "@/lib/rate-limit";
 import { getSessionUser } from "@/lib/auth";
+import { getActiveWorkspaceId } from "@/lib/workspace";
 
 const Body = z.object({ active: z.boolean() });
 
@@ -21,11 +22,12 @@ export async function POST(request: Request) {
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return apiError(400, "Invalid request");
 
+  const workspaceId = await getActiveWorkspaceId();
   const supabase = createServiceClient();
   const { error } = await supabase
     .from("campaign_settings")
     .update({ active: parsed.data.active })
-    .eq("id", 1);
+    .eq("workspace_id", workspaceId);
 
   if (error) {
     console.error("campaign update failed:", error);

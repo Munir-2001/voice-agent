@@ -7,6 +7,7 @@ import "server-only";
 
 import { createServiceClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { getActiveWorkspaceId } from "@/lib/workspace";
 import type { Lead, Call, CampaignSettings, LeadStatus, CallOutcome, TranscriptTurn } from "@/lib/types";
 import {
   leads as sampleLeads,
@@ -88,10 +89,12 @@ function mapSettings(r: Row): CampaignSettings {
 // ── reads ───────────────────────────────────────────────────────────────────
 export async function getLeads(): Promise<Lead[]> {
   if (!isSupabaseConfigured()) return sampleLeads;
+  const ws = await getActiveWorkspaceId();
   const sb = createServiceClient();
   const { data, error } = await sb
     .from("leads")
     .select("*")
+    .eq("workspace_id", ws)
     .order("uploaded_at", { ascending: false })
     .limit(5000);
   if (error) {
@@ -105,10 +108,12 @@ export async function getLeads(): Promise<Lead[]> {
 // arbitrary newest-N cap, so headline metrics don't silently truncate.
 export async function getCalls(limit = 2000, sinceISO?: string): Promise<Call[]> {
   if (!isSupabaseConfigured()) return sampleCalls;
+  const ws = await getActiveWorkspaceId();
   const sb = createServiceClient();
   let q = sb
     .from("calls")
     .select("*, leads(name, business_name)")
+    .eq("workspace_id", ws)
     .order("started_at", { ascending: false })
     .limit(limit);
   if (sinceISO) q = q.gte("started_at", sinceISO);
@@ -124,11 +129,13 @@ export async function getCallById(id: string): Promise<Call | null> {
   if (!isSupabaseConfigured()) {
     return sampleCalls.find((c) => c.id === id) ?? null;
   }
+  const ws = await getActiveWorkspaceId();
   const sb = createServiceClient();
   const { data, error } = await sb
     .from("calls")
     .select("*, leads(name, business_name)")
     .eq("id", id)
+    .eq("workspace_id", ws)
     .maybeSingle();
   if (error || !data) return null;
   return mapCall(data as Row);
@@ -136,19 +143,26 @@ export async function getCallById(id: string): Promise<Call | null> {
 
 export async function getLeadById(id: string): Promise<Lead | null> {
   if (!isSupabaseConfigured()) return sampleLeads.find((l) => l.id === id) ?? null;
+  const ws = await getActiveWorkspaceId();
   const sb = createServiceClient();
-  const { data, error } = await sb.from("leads").select("*").eq("id", id).maybeSingle();
+  const { data, error } = await sb
+    .from("leads")
+    .select("*")
+    .eq("id", id)
+    .eq("workspace_id", ws)
+    .maybeSingle();
   if (error || !data) return null;
   return mapLead(data as Row);
 }
 
 export async function getCampaignSettings(): Promise<CampaignSettings> {
   if (!isSupabaseConfigured()) return sampleSettings;
+  const ws = await getActiveWorkspaceId();
   const sb = createServiceClient();
   const { data, error } = await sb
     .from("campaign_settings")
     .select("*")
-    .eq("id", 1)
+    .eq("workspace_id", ws)
     .maybeSingle();
   if (error) {
     console.error("getCampaignSettings:", error.message);
@@ -169,15 +183,18 @@ function isWaiting(l: Lead): boolean {
 // exists, and degrades to a plain status count if contacted_at isn't there yet.
 export async function getInterestedCount(): Promise<number> {
   if (!isSupabaseConfigured()) return sampleLeads.filter(isWaiting).length;
+  const ws = await getActiveWorkspaceId();
   const sb = createServiceClient();
   const { data, error } = await sb
     .from("leads")
     .select("status, contacted_at")
+    .eq("workspace_id", ws)
     .in("status", ["interested", "callback"]);
   if (error) {
     const { count } = await sb
       .from("leads")
       .select("*", { count: "exact", head: true })
+      .eq("workspace_id", ws)
       .in("status", ["interested", "callback"]);
     return count ?? 0;
   }

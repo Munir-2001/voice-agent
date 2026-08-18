@@ -5,6 +5,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { isSameOrigin, clientIp, apiError } from "@/lib/security";
 import { rateLimit } from "@/lib/rate-limit";
 import { getSessionUser } from "@/lib/auth";
+import { getActiveWorkspaceId } from "@/lib/workspace";
 
 // "HH:MM" with real 00–23 hours and 00–59 minutes.
 const TIME = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
@@ -42,6 +43,7 @@ export async function POST(request: Request) {
   if (!parsed.success) return apiError(400, "Invalid settings");
   const s = parsed.data;
 
+  const workspaceId = await getActiveWorkspaceId();
   const supabase = createServiceClient();
   const { error } = await supabase
     .from("campaign_settings")
@@ -53,7 +55,7 @@ export async function POST(request: Request) {
       daily_cap: s.dailyCap,
       max_attempts: s.maxAttempts,
     })
-    .eq("id", 1);
+    .eq("workspace_id", workspaceId);
 
   if (error) {
     console.error("settings update failed:", error);

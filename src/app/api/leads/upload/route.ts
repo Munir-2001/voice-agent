@@ -7,6 +7,7 @@ import { cleanName, cleanEmail, cleanState } from "@/lib/clean";
 import { isSameOrigin, clientIp, apiError } from "@/lib/security";
 import { rateLimit } from "@/lib/rate-limit";
 import { getSessionUser } from "@/lib/auth";
+import { getActiveWorkspaceId } from "@/lib/workspace";
 
 const MAX_ROWS = 20_000; // hard cap: bounds memory and one campaign's list size
 const STR = z.string().max(200).optional();
@@ -53,10 +54,14 @@ export async function POST(request: Request) {
   }
   const rows = parsed.data.rows;
 
+  const workspaceId = await getActiveWorkspaceId();
   const supabase = createServiceClient();
 
-  // Load the suppression list once so opted-out numbers never get re-added.
-  const { data: suppressed } = await supabase.from("suppression").select("phone");
+  // Load THIS workspace's suppression list so opted-out numbers never get re-added.
+  const { data: suppressed } = await supabase
+    .from("suppression")
+    .select("phone")
+    .eq("workspace_id", workspaceId);
   const blocked = new Set(
     ((suppressed ?? []) as { phone: string }[]).map((s) => s.phone),
   );
@@ -81,6 +86,7 @@ export async function POST(request: Request) {
     }
     seen.add(e164);
     clean.push({
+      workspace_id: workspaceId,
       name: cleanName(row.name),
       business_name: cleanName(row.business_name),
       phone: e164,
@@ -98,10 +104,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ imported: 0, rejected: rejects });
   }
 
-  // Upsert on phone so re-uploads don't duplicate existing leads.
+  // Upsert on (workspace_id, phone) so re-uploads don't duplicate within a
+  // workspace, but the same number can still exist in a different workspace.
   const { error, count } = await supabase
     .from("leads")
-    .upsert(clean, { onConflict: "phone", ignoreDuplicates: true, count: "exact" });
+    .upsert(clean, {
+      onConflict: "workspace_id,phone",
+      ignoreDuplicates: true,
+      count: "exact",
+    });
 
   if (error) {
     console.error("lead upload failed:", error);

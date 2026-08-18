@@ -42,7 +42,9 @@ function providers(): Provider[] {
       name: "groq",
       apiKey: process.env.GROQ_API_KEY,
       baseUrl: process.env.GROQ_BASE_URL ?? "https://api.groq.com/openai/v1",
-      model: process.env.GROQ_MODEL ?? "llama-3.3-70b-versatile",
+      // llama-3.3-70b-versatile was decommissioned on Groq; gpt-oss-120b is a
+      // current, JSON-capable model. Override with GROQ_MODEL if needed.
+      model: process.env.GROQ_MODEL ?? "openai/gpt-oss-120b",
     });
   }
   if (process.env.DEEPSEEK_API_KEY) {

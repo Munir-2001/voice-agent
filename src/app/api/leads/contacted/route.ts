@@ -5,6 +5,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { isSameOrigin, clientIp, apiError } from "@/lib/security";
 import { rateLimit } from "@/lib/rate-limit";
 import { getSessionUser } from "@/lib/auth";
+import { getActiveWorkspaceId } from "@/lib/workspace";
 
 const Body = z.object({ leadId: z.string().uuid() });
 
@@ -19,11 +20,13 @@ export async function POST(request: Request) {
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return apiError(400, "Invalid request");
 
+  const workspaceId = await getActiveWorkspaceId();
   const supabase = createServiceClient();
   const { error } = await supabase
     .from("leads")
     .update({ contacted_at: new Date().toISOString() })
-    .eq("id", parsed.data.leadId);
+    .eq("id", parsed.data.leadId)
+    .eq("workspace_id", workspaceId);
 
   if (error) {
     // Full detail (often: contacted_at column missing) goes to the server log;

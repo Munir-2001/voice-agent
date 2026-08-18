@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Brand } from "@/components/brand";
 import { SignOutButton } from "@/components/sign-out-button";
+import { WorkspaceSwitcher, type WorkspaceOption } from "@/components/workspace-switcher";
 import { initials } from "@/lib/format";
 
 const NAV = [
@@ -50,10 +51,16 @@ const MANAGE = [
 export function AppSidebar({
   interestedCount = 0,
   userEmail = "",
+  workspaces = [],
+  activeWorkspaceId = 1,
 }: {
   interestedCount?: number;
   userEmail?: string;
+  workspaces?: WorkspaceOption[];
+  activeWorkspaceId?: number;
 }) {
+  const activeWorkspaceName =
+    workspaces.find((w) => w.id === activeWorkspaceId)?.name ?? "Workspace";
   const pathname = usePathname();
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(href + "/");
@@ -117,6 +124,7 @@ export function AppSidebar({
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="gap-1 p-3">
+        <WorkspaceSwitcher workspaces={workspaces} activeId={activeWorkspaceId} />
         <div className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2.5">
           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-semibold uppercase">
             {initials(userEmail.split("@")[0].replace(/[._-]/g, " ")) || "•"}
@@ -126,7 +134,7 @@ export function AppSidebar({
               {userEmail || "Signed in"}
             </span>
             <span className="truncate text-xs text-muted-foreground">
-              Client workspace
+              {activeWorkspaceName}
             </span>
           </div>
         </div>

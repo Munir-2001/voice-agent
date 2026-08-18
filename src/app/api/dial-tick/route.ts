@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runDialTick } from "@/lib/agent/dialer";
+import { runAllActiveWorkspaces } from "@/lib/agent/dialer";
 import { hasValidCronSecret, clientIp, apiError } from "@/lib/security";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -22,6 +22,7 @@ export async function POST(request: Request) {
     return apiError(401, "Unauthorized");
   }
 
-  const result = await runDialTick();
-  return NextResponse.json(result);
+  // One tick for every active workspace, each with its own settings/window/cap.
+  const results = await runAllActiveWorkspaces();
+  return NextResponse.json({ workspaces: results });
 }
