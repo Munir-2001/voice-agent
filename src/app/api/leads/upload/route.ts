@@ -9,8 +9,17 @@ import { rateLimit } from "@/lib/rate-limit";
 import { getSessionUser } from "@/lib/auth";
 import { getActiveWorkspaceId } from "@/lib/workspace";
 
-const MAX_ROWS = 20_000; // hard cap: bounds memory and one campaign's list size
-const STR = z.string().max(200).optional();
+// Per-request cap. The client uploads large lists in batches of this size to
+// stay under Vercel's ~4.5MB request-body limit, so total list size is unbounded.
+const MAX_ROWS = 5_000;
+
+// Tolerant field: coerce anything (number, null, long text) to a trimmed string
+// capped at 300 chars. It NEVER rejects, so a single messy cell can't fail the
+// whole upload — invalid rows are dropped later by the phone check instead.
+const STR = z.preprocess(
+  (v) => (v == null ? "" : String(v).slice(0, 300)),
+  z.string(),
+);
 
 const Body = z.object({
   rows: z
@@ -18,8 +27,8 @@ const Body = z.object({
       z.object({
         name: STR,
         business_name: STR,
-        phone: z.string().max(40).optional(),
-        email: z.string().max(200).optional(),
+        phone: STR,
+        email: STR,
         industry: STR,
         state: STR,
         consent_source: STR,

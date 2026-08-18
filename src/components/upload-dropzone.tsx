@@ -80,6 +80,7 @@ export function UploadDropzone() {
   const [busy, setBusy] = useState(false);
   const [importing, setImporting] = useState(false);
   const [imported, setImported] = useState<ImportResult | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Shared: turn raw rows (from CSV or Excel) into validated leads + preview.
@@ -152,33 +153,52 @@ export function UploadDropzone() {
     });
   }
 
+  // Upload in batches so lists of any size stay under the request-body limit.
+  const BATCH = 4000;
   async function doImport() {
     if (!parsed) return;
     setImporting(true);
+    setProgress({ done: 0, total: parsed.rows.length });
+    const totals: ImportResult = {
+      imported: 0,
+      rejected: { invalid: 0, duplicate: 0, suppressed: 0 },
+    };
     try {
-      const res = await fetch("/api/leads/upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: parsed.rows }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast.error(data.error ?? "Import failed", {
-          description:
-            res.status === 503
-              ? "Connect Supabase (set the env vars) to save leads."
-              : undefined,
+      const rows = parsed.rows;
+      for (let i = 0; i < rows.length; i += BATCH) {
+        const chunk = rows.slice(i, i + BATCH);
+        const res = await fetch("/api/leads/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rows: chunk }),
         });
-        return;
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast.error(data.error ?? "Import failed", {
+            description:
+              res.status === 503
+                ? "Connect Supabase (set the env vars) to save leads."
+                : `Stopped near row ${i + 1}. ${totals.imported} imported before the error.`,
+          });
+          if (totals.imported > 0) setImported(totals);
+          return;
+        }
+        totals.imported += data.imported ?? 0;
+        totals.rejected.invalid += data.rejected?.invalid ?? 0;
+        totals.rejected.duplicate += data.rejected?.duplicate ?? 0;
+        totals.rejected.suppressed += data.rejected?.suppressed ?? 0;
+        setProgress({ done: Math.min(i + BATCH, rows.length), total: rows.length });
       }
-      setImported(data as ImportResult);
-      toast.success(`${data.imported} leads imported`, {
+      setImported(totals);
+      toast.success(`${totals.imported} leads imported`, {
         description: "They'll be dialed during business hours.",
       });
     } catch {
       toast.error("Network error — could not reach the server");
+      if (totals.imported > 0) setImported(totals);
     } finally {
       setImporting(false);
+      setProgress(null);
     }
   }
 
@@ -290,7 +310,11 @@ export function UploadDropzone() {
             </p>
             <Button disabled={parsed.valid === 0 || importing} onClick={doImport} className="gap-1.5">
               {importing && <Loader2 className="size-4 animate-spin" />}
-              {importing ? "Importing…" : `Import ${parsed.valid} leads`}
+              {importing
+                ? progress
+                  ? `Importing… ${progress.done.toLocaleString()}/${progress.total.toLocaleString()}`
+                  : "Importing…"
+                : `Import ${parsed.valid} leads`}
             </Button>
           </div>
         </Card>

@@ -173,7 +173,11 @@ export async function runDialTick(
 
   for (let i = 0; i < eligible.length; i++) {
     const lead = eligible[i];
-    const agentPhoneNumberId = phoneNumberIds[i % phoneNumberIds.length];
+    // Rotate caller ID across the WHOLE day, not just within this tick — offset
+    // by how many calls were already placed today so number A / B / A / B
+    // alternate even when only 1 call is placed per tick.
+    const agentPhoneNumberId =
+      phoneNumberIds[(placedToday + i) % phoneNumberIds.length];
     try {
       await placeOutboundCall(lead, agentPhoneNumberId);
       await supabase
