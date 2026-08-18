@@ -27,6 +27,7 @@ interface LeadRow {
   email: string;
   industry: string;
   state: string;
+  website: string;
 }
 
 interface Parsed {
@@ -57,13 +58,19 @@ function field(row: Record<string, unknown>, ...names: string[]): string {
 }
 
 function mapRow(row: Record<string, unknown>): LeadRow {
+  // Full name may be one column, or split first/last (e.g. "Person - Name" +
+  // "Last Name" in the new list format) — combine them if so.
+  const first = field(row, "name", "full name", "contact", "contact name", "person - name", "first name", "first");
+  const last = field(row, "last name", "last", "surname");
+  const name = [first, last].filter(Boolean).join(" ").trim();
   return {
-    name: field(row, "name", "full name", "contact", "contact name"),
+    name,
     business_name: field(row, "business_name", "business name", "business", "company", "company name"),
-    phone: field(row, "phone", "phone number", "number", "mobile", "cell", "tel"),
-    email: field(row, "email", "email address", "e-mail"),
+    phone: field(row, "phone", "phone number", "number", "mobile", "cell", "tel", "person - phone"),
+    email: field(row, "email", "email address", "e-mail", "person - email"),
     industry: field(row, "industry", "business type", "type"),
     state: field(row, "state", "st"),
+    website: field(row, "company website", "website", "web", "url", "site"),
   };
 }
 

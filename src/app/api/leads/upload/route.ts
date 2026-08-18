@@ -23,6 +23,7 @@ const Body = z.object({
         industry: STR,
         state: STR,
         consent_source: STR,
+        website: STR,
       }),
     )
     .max(MAX_ROWS),
@@ -97,6 +98,7 @@ export async function POST(request: Request) {
       status: "pending" as const,
       attempts: 0,
       consent_source: row.consent_source ?? null,
+      website: (row.website ?? "").trim() || null,
     });
   }
 
