@@ -201,6 +201,91 @@ export async function getInterestedCount(): Promise<number> {
   return (data as Row[]).filter((r) => !r.contacted_at).length;
 }
 
+export interface LeadsPage {
+  leads: Lead[];
+  total: number;
+}
+
+// Server-side paginated + searched leads for the /leads table, scoped to the
+// active workspace. Search matches name / business / phone in the DB (so it
+// covers the WHOLE list, not just a loaded page). `status` "all" = no filter.
+export async function getLeadsPage(opts: {
+  page: number;
+  pageSize: number;
+  q?: string;
+  status?: string;
+}): Promise<LeadsPage> {
+  const { page, pageSize } = opts;
+  const status = opts.status && opts.status !== "all" ? opts.status : undefined;
+  // Strip characters that would break a PostgREST or()/ilike filter.
+  const q = (opts.q ?? "").trim().replace(/[,()%*]/g, "");
+
+  if (!isSupabaseConfigured()) {
+    let rows = sampleLeads;
+    if (q) {
+      const lq = q.toLowerCase();
+      rows = rows.filter(
+        (l) =>
+          l.name.toLowerCase().includes(lq) ||
+          l.businessName.toLowerCase().includes(lq) ||
+          l.phone.includes(lq),
+      );
+    }
+    if (status) rows = rows.filter((l) => l.status === status);
+    const from = (page - 1) * pageSize;
+    return { leads: rows.slice(from, from + pageSize), total: rows.length };
+  }
+
+  const ws = await getActiveWorkspaceId();
+  const sb = createServiceClient();
+  const from = (page - 1) * pageSize;
+  let query = sb
+    .from("leads")
+    .select("*", { count: "exact" })
+    .eq("workspace_id", ws);
+  if (status) query = query.eq("status", status);
+  if (q) {
+    query = query.or(
+      `name.ilike.%${q}%,business_name.ilike.%${q}%,phone.ilike.%${q}%`,
+    );
+  }
+  const { data, error, count } = await query
+    .order("uploaded_at", { ascending: false })
+    .range(from, from + pageSize - 1);
+  if (error) {
+    console.error("getLeadsPage:", error.message);
+    return { leads: [], total: 0 };
+  }
+  return { leads: (data as Row[]).map(mapLead), total: count ?? 0 };
+}
+
+// Per-status counts for the leads-page filter pills, scoped to the active
+// workspace. One lightweight query (status column only).
+export async function getLeadStatusCounts(): Promise<Record<string, number>> {
+  if (!isSupabaseConfigured()) {
+    const m: Record<string, number> = {};
+    for (const l of sampleLeads) m[l.status] = (m[l.status] ?? 0) + 1;
+    return m;
+  }
+  const ws = await getActiveWorkspaceId();
+  const sb = createServiceClient();
+  const { data, error } = await sb
+    .from("leads")
+    .select("status")
+    .eq("workspace_id", ws)
+    .limit(100_000);
+  if (error) {
+    console.error("getLeadStatusCounts:", error.message);
+    return {};
+  }
+  const m: Record<string, number> = {};
+  for (const r of data as Row[]) {
+    const s = r.status as string;
+    m[s] = (m[s] ?? 0) + 1;
+  }
+  return m;
+}
+
 export async function getInterestedLeads(): Promise<{ lead: Lead; call: Call | null }[]> {
   const [leads, calls] = await Promise.all([getLeads(), getCalls(5000)]);
   const latestByLead = new Map<string, Call>();
