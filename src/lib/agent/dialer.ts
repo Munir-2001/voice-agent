@@ -205,6 +205,31 @@ export async function runDialTick(
 }
 
 /**
+ * Recover leads orphaned in the 'calling' state — the dialer sets 'calling' when
+ * it places a call and relies on the post-call webhook to move it to the real
+ * outcome. If a webhook is ever missed (e.g. a no-answer that fires no webhook,
+ * or a webhook outage), the lead would be stuck 'calling' forever and never
+ * retried. Any lead 'calling' longer than a real call could last is reset to
+ * 'no_answer' so it re-enters the queue. A late webhook still corrects it (it
+ * upserts the call and re-sets the lead status). Runs across ALL workspaces.
+ */
+export async function recoverStaleCalls(olderThanMinutes = 15): Promise<number> {
+  const supabase = createServiceClient();
+  const cutoff = new Date(Date.now() - olderThanMinutes * 60_000).toISOString();
+  const { data, error } = await supabase
+    .from("leads")
+    .update({ status: "no_answer" })
+    .eq("status", "calling")
+    .lt("last_called_at", cutoff)
+    .select("id");
+  if (error) {
+    console.error("recoverStaleCalls:", error.message);
+    return 0;
+  }
+  return data?.length ?? 0;
+}
+
+/**
  * Cron entry point: run one tick for EVERY active workspace, independently.
  * Each workspace uses its own settings/window/cap/pacing, so campaigns never
  * interfere. Returns a per-workspace result array.

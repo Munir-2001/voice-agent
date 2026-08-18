@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runAllActiveWorkspaces } from "@/lib/agent/dialer";
+import { runAllActiveWorkspaces, recoverStaleCalls } from "@/lib/agent/dialer";
 import { hasValidCronSecret, clientIp, apiError } from "@/lib/security";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -22,7 +22,9 @@ export async function POST(request: Request) {
     return apiError(401, "Unauthorized");
   }
 
-  // One tick for every active workspace, each with its own settings/window/cap.
+  // Self-heal any leads orphaned in 'calling' by a missed webhook, then run one
+  // tick for every active workspace (each with its own settings/window/cap).
+  const recovered = await recoverStaleCalls();
   const results = await runAllActiveWorkspaces();
-  return NextResponse.json({ workspaces: results });
+  return NextResponse.json({ recovered, workspaces: results });
 }
