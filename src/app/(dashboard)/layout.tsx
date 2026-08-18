@@ -7,23 +7,29 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Separator } from "@/components/ui/separator";
 import { getCampaignSettings, getInterestedCount } from "@/lib/data";
 import { getSessionUser } from "@/lib/auth";
+import { getUserWorkspaces, getActiveWorkspaceId } from "@/lib/workspace";
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const [settings, interestedCount, user] = await Promise.all([
-    getCampaignSettings(),
-    getInterestedCount(),
-    getSessionUser(),
-  ]);
+  const [settings, interestedCount, user, workspaces, activeWorkspaceId] =
+    await Promise.all([
+      getCampaignSettings(),
+      getInterestedCount(),
+      getSessionUser(),
+      getUserWorkspaces(),
+      getActiveWorkspaceId(),
+    ]);
   return (
-    <CampaignProvider initialActive={settings.active}>
+    <CampaignProvider key={activeWorkspaceId} initialActive={settings.active}>
       <SidebarProvider>
         <AppSidebar
           interestedCount={interestedCount}
           userEmail={user?.email ?? ""}
+          workspaces={workspaces}
+          activeWorkspaceId={activeWorkspaceId}
         />
         <SidebarInset>
           <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur-md">

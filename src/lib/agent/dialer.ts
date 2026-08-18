@@ -3,6 +3,10 @@ import "server-only";
 // "Call now" button (/api/dial-now). Picks eligible leads and places outbound
 // calls through ElevenLabs, rotating caller IDs. All compliance guardrails
 // (calling window, suppression, daily cap) live here so BOTH callers honor them.
+//
+// Everything is scoped to a single workspace: its own settings, leads,
+// per-workspace suppression list, cap, window and pacing. The cron runs every
+// active workspace independently via runAllActiveWorkspaces().
 
 import { createServiceClient } from "@/lib/supabase/server";
 import { isWithinCallingWindow } from "@/lib/timezone";
@@ -15,6 +19,7 @@ const LEGAL_START_HOUR = 8;
 const LEGAL_END_HOUR = 21;
 
 export interface DialTickResult {
+  workspaceId?: number;
   skipped?: string;
   placed?: number;
   ids?: string[];
@@ -34,13 +39,15 @@ type LeadRow = {
 };
 
 /**
- * Run one dialing tick.
+ * Run one dialing tick for ONE workspace.
  *
+ * @param workspaceId The workspace whose settings/leads/suppression apply.
  * @param opts.manual When true (the "Call now" button), the campaign `active`
  *   pause flag is ignored and the calling window widens to the full legal
  *   8am–9pm lead-local band. Suppression and the daily cap are ALWAYS enforced.
  */
 export async function runDialTick(
+  workspaceId: number,
   opts: { manual?: boolean } = {},
 ): Promise<DialTickResult> {
   const { manual = false } = opts;
@@ -50,16 +57,16 @@ export async function runDialTick(
   const { data: settings } = await supabase
     .from("campaign_settings")
     .select("*")
-    .eq("id", 1)
-    .single();
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
 
-  if (!settings) return { skipped: "no campaign settings" };
+  if (!settings) return { workspaceId, skipped: "no campaign settings" };
   // Scheduled ticks respect the pause switch; a manual dial overrides it.
-  if (!settings.active && !manual) return { skipped: "campaign paused" };
+  if (!settings.active && !manual) return { workspaceId, skipped: "campaign paused" };
 
   // Effective window: the configured business hours for scheduled ticks, or the
-  // full legal band for a manual dial (so "Call now" works outside 10–12 but
-  // still never dials before 8am / after 9pm local).
+  // full legal band for a manual dial (so "Call now" works outside the window
+  // but still never dials before 8am / after 9pm local).
   const [cfgStart] = String(settings.window_start ?? "09:00").split(":").map(Number);
   const [cfgEnd] = String(settings.window_end ?? "18:00").split(":").map(Number);
   const startHour = manual ? LEGAL_START_HOUR : cfgStart;
@@ -67,35 +74,36 @@ export async function runDialTick(
 
   // Daily cap — count BOTH completed calls today (the `calls` table, written by
   // the post-call webhook) AND leads currently mid-call (status 'calling', placed
-  // today but no webhook back yet). Without the in-flight count a fast, per-minute
-  // cadence could overshoot the cap before webhooks land.
+  // today but no webhook back yet). Scoped to this workspace.
   const startOfDay = new Date(now);
   startOfDay.setHours(0, 0, 0, 0);
   const [completed, inflight] = await Promise.all([
     supabase
       .from("calls")
       .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .gte("started_at", startOfDay.toISOString()),
     supabase
       .from("leads")
       .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
       .eq("status", "calling")
       .gte("last_called_at", startOfDay.toISOString()),
   ]);
   const placedToday = (completed.count ?? 0) + (inflight.count ?? 0);
   const remainingCap = settings.daily_cap - placedToday;
-  if (remainingCap <= 0) return { skipped: "daily cap reached" };
+  if (remainingCap <= 0) return { workspaceId, skipped: "daily cap reached" };
 
   // Even-spread pacing (scheduled ticks only): spread `daily_cap` calls evenly
-  // across the calling window instead of front-loading them at the window's
-  // open. gap = window-minutes / daily-cap; we place only if the most recent
-  // placement today was at least `gap` ago. A manual "Call now" bypasses this.
+  // across the window. gap = window-minutes / daily-cap; place only if the most
+  // recent placement today was at least `gap` ago. A manual "Call now" bypasses.
   if (!manual) {
     const windowMinutes = Math.max(1, (endHour - startHour) * 60);
     const gapMs = (windowMinutes / settings.daily_cap) * 60_000;
     const { data: recent } = await supabase
       .from("leads")
       .select("last_called_at")
+      .eq("workspace_id", workspaceId)
       .gte("last_called_at", startOfDay.toISOString())
       .order("last_called_at", { ascending: false })
       .limit(1)
@@ -104,16 +112,16 @@ export async function runDialTick(
       ? new Date(recent.last_called_at).getTime()
       : 0;
     if (lastMs && now.getTime() - lastMs < gapMs) {
-      return { skipped: "pacing: waiting for next slot" };
+      return { workspaceId, skipped: "pacing: waiting for next slot" };
     }
   }
 
-  // Candidate leads not yet exhausted. Order by attempts first so EVERY lead
-  // gets a first call before anyone is retried (maximizes unique reach across
-  // the list), then by upload order so it works top-to-bottom.
+  // Candidate leads not yet exhausted, in this workspace. Order by attempts first
+  // so EVERY lead gets a first call before anyone is retried, then upload order.
   const { data: candidates } = await supabase
     .from("leads")
     .select("*")
+    .eq("workspace_id", workspaceId)
     .in("status", ["pending", "callback", "no_answer"])
     .lt("attempts", settings.max_attempts)
     .order("attempts", { ascending: true })
@@ -124,18 +132,19 @@ export async function runDialTick(
     isWithinCallingWindow(l.timezone, startHour, endHour, now),
   );
 
-  // Suppression gate (TCPA): never dial a number on the opt-out/DNC list, even if
-  // the lead row itself still looks eligible.
+  // Suppression gate (TCPA), per-workspace: never dial a number on THIS
+  // workspace's opt-out/DNC list, even if the lead row still looks eligible.
   let blocked = new Set<string>();
   if (inWindow.length > 0) {
     const { data: suppressed, error: supErr } = await supabase
       .from("suppression")
       .select("phone")
+      .eq("workspace_id", workspaceId)
       .in("phone", inWindow.map((l) => l.phone));
     if (supErr) {
       // Fail CLOSED: if we cannot verify the opt-out list, place no calls.
       console.error("dial-tick: suppression lookup failed:", supErr.message);
-      return { skipped: "suppression list unavailable" };
+      return { workspaceId, skipped: "suppression list unavailable" };
     }
     blocked = new Set((suppressed ?? []).map((r: { phone: string }) => r.phone));
   }
@@ -149,15 +158,14 @@ export async function runDialTick(
   const phoneNumberIds = callerNumberIds();
   if (phoneNumberIds.length === 0) {
     console.error("dial-tick: no ELEVENLABS_PHONE_NUMBER_ID(S) configured");
-    return { skipped: "no caller numbers configured" };
+    return { workspaceId, skipped: "no caller numbers configured" };
   }
 
-  // Nothing to place — report WHICH gate emptied the list so the caller (and the
-  // "Call now" button) can show an accurate reason instead of a vague catch-all.
+  // Nothing to place — report WHICH gate emptied the list.
   if (eligible.length === 0) {
-    if (!candidates || candidates.length === 0) return { skipped: "no eligible leads" };
-    if (inWindow.length === 0) return { skipped: "outside calling window" };
-    return { skipped: "all remaining leads suppressed" };
+    if (!candidates || candidates.length === 0) return { workspaceId, skipped: "no eligible leads" };
+    if (inWindow.length === 0) return { workspaceId, skipped: "outside calling window" };
+    return { workspaceId, skipped: "all remaining leads suppressed" };
   }
 
   const placed: string[] = [];
@@ -175,7 +183,8 @@ export async function runDialTick(
           attempts: lead.attempts + 1,
           last_called_at: now.toISOString(),
         })
-        .eq("id", lead.id);
+        .eq("id", lead.id)
+        .eq("workspace_id", workspaceId);
       placed.push(lead.id);
     } catch (err) {
       // Leave the lead as-is so it stays eligible next tick, but never swallow the
@@ -187,9 +196,36 @@ export async function runDialTick(
   }
 
   return {
+    workspaceId,
     placed: placed.length,
     ids: placed,
     failed: failed.length,
     ...(failed.length > 0 ? { errors: failed } : {}),
   };
+}
+
+/**
+ * Cron entry point: run one tick for EVERY active workspace, independently.
+ * Each workspace uses its own settings/window/cap/pacing, so campaigns never
+ * interfere. Returns a per-workspace result array.
+ */
+export async function runAllActiveWorkspaces(): Promise<DialTickResult[]> {
+  const supabase = createServiceClient();
+  const { data: active, error } = await supabase
+    .from("campaign_settings")
+    .select("workspace_id")
+    .eq("active", true);
+  if (error) {
+    console.error("dial-tick: could not list active workspaces:", error.message);
+    return [{ skipped: "settings lookup failed" }];
+  }
+  const ids = (active ?? []).map((r: { workspace_id: number }) => r.workspace_id);
+  if (ids.length === 0) return [{ skipped: "no active campaigns" }];
+
+  // Sequential to keep total concurrency (and caller-number load) sane.
+  const results: DialTickResult[] = [];
+  for (const id of ids) {
+    results.push(await runDialTick(id));
+  }
+  return results;
 }

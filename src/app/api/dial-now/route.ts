@@ -3,6 +3,7 @@ import { runDialTick } from "@/lib/agent/dialer";
 import { isSameOrigin, clientIp, apiError } from "@/lib/security";
 import { rateLimit } from "@/lib/rate-limit";
 import { getSessionUser } from "@/lib/auth";
+import { getActiveWorkspaceId } from "@/lib/workspace";
 
 // On-demand "Call now" — triggers an immediate dialing tick from the dashboard,
 // so you don't wait up to a minute for the next scheduled cron tick. Runs as a
@@ -19,6 +20,8 @@ export async function POST(request: Request) {
   if (!rl.ok) return apiError(429, "Too many requests — try again in a moment");
   if (!(await getSessionUser())) return apiError(401, "Unauthorized");
 
-  const result = await runDialTick({ manual: true });
+  // Dial only the workspace the user is currently viewing.
+  const workspaceId = await getActiveWorkspaceId();
+  const result = await runDialTick(workspaceId, { manual: true });
   return NextResponse.json(result);
 }

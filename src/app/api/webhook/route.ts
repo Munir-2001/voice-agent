@@ -96,10 +96,14 @@ export async function POST(request: Request) {
   const { data: lead } = leadId
     ? await supabase
         .from("leads")
-        .select("name, business_name, email, phone, timezone")
+        .select("name, business_name, email, phone, timezone, workspace_id")
         .eq("id", leadId)
         .maybeSingle()
     : { data: null };
+
+  // The workspace the call belongs to (from its lead). Standalone test calls
+  // (no lead) fall back to Default.
+  const workspaceId = (lead?.workspace_id as number) ?? 1;
 
   const { outcome, summary, callbackAt, timezone: statedTimezone } =
     await classifyTranscript(transcript, {
@@ -108,6 +112,7 @@ export async function POST(request: Request) {
     });
 
   await supabase.from("calls").insert({
+    workspace_id: workspaceId,
     lead_id: leadId,
     elevenlabs_conversation_id: conversationId,
     started_at: new Date().toISOString(),
@@ -125,9 +130,13 @@ export async function POST(request: Request) {
   if (leadId) {
     const patch: Record<string, unknown> = { status: outcome };
     if (outcome === "opted_out" && toNumber) {
+      // Per-workspace opt-out: suppress the number only for this workspace.
       await supabase
         .from("suppression")
-        .upsert({ phone: toNumber, reason: "opt_out" }, { onConflict: "phone" });
+        .upsert(
+          { workspace_id: workspaceId, phone: toNumber, reason: "opt_out" },
+          { onConflict: "workspace_id,phone" },
+        );
     }
     if (callbackAt) patch.callback_at = callbackAt;
     // The prospect told us where they are → correct the lead's timezone (more
