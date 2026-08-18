@@ -17,7 +17,10 @@ export interface Workspace {
   id: number;
   name: string;
   slug: string;
+  role: string; // 'owner' marks the user's home workspace (default landing)
 }
+
+type MemberRow = { role: string | null; workspaces: Omit<Workspace, "role"> | Omit<Workspace, "role">[] | null };
 
 // Every workspace the current user is a member of (sorted by id). Empty if not
 // signed in or Supabase isn't configured.
@@ -29,21 +32,29 @@ export async function getUserWorkspaces(): Promise<Workspace[]> {
   const sb = createServiceClient();
   const { data, error } = await sb
     .from("workspace_members")
-    .select("workspaces(id, name, slug)")
+    .select("role, workspaces(id, name, slug)")
     .eq("user_id", user.id);
   if (error) {
     console.error("getUserWorkspaces:", error.message);
     return [];
   }
-  const rows = (data ?? []) as Array<{ workspaces: Workspace | Workspace[] | null }>;
+  const rows = (data ?? []) as MemberRow[];
   const workspaces = rows
-    .flatMap((r) => (Array.isArray(r.workspaces) ? r.workspaces : r.workspaces ? [r.workspaces] : []))
+    .flatMap((r) => {
+      const list = Array.isArray(r.workspaces)
+        ? r.workspaces
+        : r.workspaces
+          ? [r.workspaces]
+          : [];
+      return list.map((w) => ({ ...w, role: r.role ?? "member" }));
+    })
     .sort((a, b) => a.id - b.id);
   return workspaces;
 }
 
 // The active workspace id for the current request: the cookie value if the user
-// is a member of it, else their first workspace, else Default (never locks out).
+// is a member of it; else the user's HOME workspace (the one they own); else
+// their first workspace; else Default (never locks anyone out).
 export async function getActiveWorkspaceId(): Promise<number> {
   const workspaces = await getUserWorkspaces();
   if (workspaces.length === 0) return DEFAULT_WORKSPACE_ID;
@@ -54,5 +65,8 @@ export async function getActiveWorkspaceId(): Promise<number> {
   if (Number.isFinite(wanted) && workspaces.some((w) => w.id === wanted)) {
     return wanted;
   }
-  return workspaces[0].id;
+  // First visit / no cookie: land on the workspace the user owns (their own
+  // data), so the admin opens straight into Private. Falls back to first.
+  const home = workspaces.find((w) => w.role === "owner");
+  return (home ?? workspaces[0]).id;
 }
