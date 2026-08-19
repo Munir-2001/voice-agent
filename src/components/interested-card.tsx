@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { Phone, FileText, Building2, CalendarClock, Check } from "lucide-react";
+import { Phone, FileText, Building2, CalendarClock, Check, Mail, MapPin } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { MarkContactedButton } from "@/components/mark-contacted";
+import { LeadStatusBadge } from "@/components/status-badge";
 import type { Lead, Call } from "@/lib/types";
 import { formatPhone, relativeTime, initials, formatDateTimeInTz } from "@/lib/format";
 
@@ -31,12 +32,27 @@ export function InterestedCard({
             {lead.businessName || lead.email || "—"}
           </p>
         </div>
-        {lead.status === "callback" && (
-          <span className="rounded-full border border-warning/30 bg-warning-muted px-2.5 py-0.5 text-xs font-medium text-warning-ink">
-            Callback
-          </span>
+        {(lead.status === "callback" || lead.status === "meeting_booked") && (
+          <LeadStatusBadge status={lead.status} />
         )}
       </div>
+
+      {(lead.meetingEmail || lead.meetingCity) && (
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          {lead.meetingEmail && (
+            <span className="flex items-center gap-1.5">
+              <Mail className="size-3.5" />
+              {lead.meetingEmail}
+            </span>
+          )}
+          {lead.meetingCity && (
+            <span className="flex items-center gap-1.5">
+              <MapPin className="size-3.5" />
+              {lead.meetingCity}
+            </span>
+          )}
+        </div>
+      )}
 
       {lead.callbackAt && (
         <div className="mt-4 flex items-center gap-2 rounded-lg border border-warning/30 bg-warning-muted px-3 py-2">

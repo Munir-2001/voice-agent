@@ -9,7 +9,11 @@ export type LeadStatus =
   | "voicemail"
   | "no_answer"
   | "bad_number"
-  | "opted_out";
+  | "opted_out"
+  // AI-meeting campaign states
+  | "meeting_booked"
+  | "not_decision_maker"
+  | "needs_review";
 
 export type CallOutcome =
   | "interested"
@@ -18,7 +22,12 @@ export type CallOutcome =
   | "voicemail"
   | "no_answer"
   | "opted_out"
-  | "failed";
+  | "failed"
+  // AI-meeting campaign states
+  | "meeting_booked"
+  | "not_decision_maker"
+  | "needs_review"
+  | "bad_number";
 
 export interface Lead {
   id: string;
@@ -36,6 +45,10 @@ export interface Lead {
   contactedAt?: string | null; // ISO — set when the human calls them back
   consentSource: string | null;
   uploadedAt: string; // ISO
+  // AI-meeting campaign fields
+  website?: string | null;
+  meetingEmail?: string | null; // email confirmed on the call (may differ from email)
+  meetingCity?: string | null; // city stated on the call
 }
 
 export interface Call {

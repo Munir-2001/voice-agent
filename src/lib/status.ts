@@ -17,6 +17,9 @@ export const LEAD_STATUS_META: Record<LeadStatus, StatusMeta> = {
   no_answer: { label: "No answer", tone: "neutral" },
   bad_number: { label: "Bad number", tone: "danger" },
   opted_out: { label: "Opted out", tone: "danger" },
+  meeting_booked: { label: "Meeting booked", tone: "success" },
+  not_decision_maker: { label: "Not decision-maker", tone: "info" },
+  needs_review: { label: "Needs review", tone: "warning" },
 };
 
 export const CALL_OUTCOME_META: Record<CallOutcome, StatusMeta> = {
@@ -27,6 +30,10 @@ export const CALL_OUTCOME_META: Record<CallOutcome, StatusMeta> = {
   no_answer: { label: "No answer", tone: "neutral" },
   opted_out: { label: "Opted out", tone: "danger" },
   failed: { label: "Failed", tone: "danger" },
+  meeting_booked: { label: "Meeting booked", tone: "success" },
+  not_decision_maker: { label: "Not decision-maker", tone: "info" },
+  needs_review: { label: "Needs review", tone: "warning" },
+  bad_number: { label: "Bad number", tone: "danger" },
 };
 
 // Tailwind classes per tone — muted background + readable foreground.

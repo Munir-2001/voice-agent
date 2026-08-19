@@ -234,6 +234,83 @@ export async function sendBusinessProfileEmail(
   }
 }
 
+interface MeetingLead {
+  name: string;
+  businessName: string;
+  email: string;
+}
+
+/**
+ * NextGen AI meeting invite — sent to a prospect who agreed to (or is warm on)
+ * the exploratory call. Includes the Cal.com booking link (BOOKING_LINK) so they
+ * pick a time (Google Meet auto-created) + a short intake so Munir comes prepared.
+ * Sent from the shared inbox with a "NextGen AI" display name; replies go to
+ * NEXTGEN_REPLY_TO (else EMAIL_REPLY_TO). Never throws.
+ */
+export async function sendMeetingEmail(
+  lead: MeetingLead,
+): Promise<{ sent: boolean; reason?: string }> {
+  if (!isEmailConfigured()) return { sent: false, reason: "email not configured" };
+  if (!lead.email || !looksLikeEmail(lead.email)) {
+    return { sent: false, reason: "no valid lead email" };
+  }
+
+  const first = lead.name.trim().split(/\s+/)[0] || "there";
+  const bookingLink = process.env.BOOKING_LINK || "";
+  const fromAddr = process.env.SMTP_USER!;
+  const replyTo =
+    process.env.NEXTGEN_REPLY_TO || process.env.EMAIL_REPLY_TO || fromAddr;
+
+  const intake = [
+    "What does your business do (in a sentence)?",
+    "Roughly how many people on the team?",
+    "The most time-consuming or manual part of your operation right now?",
+    "Any tools/software you already use for it?",
+  ];
+  const bookLine = bookingLink
+    ? `Grab a time that suits you here: ${bookingLink}`
+    : `Just reply with a couple of times that work and I'll send a Google Meet invite.`;
+  const bookLineHtml = bookingLink
+    ? `Grab a time that suits you here: <a href="${esc(bookingLink)}">${esc(bookingLink)}</a>`
+    : `Just reply with a couple of times that work and I'll send a Google Meet invite.`;
+
+  const text = `Hi ${first},
+
+Thanks for the quick chat — great to connect. As mentioned, this is a free, no-obligation exploratory call: I'll look at ${lead.businessName || "your business"} and bring a couple of concrete ways AI could save you time or money.
+
+${bookLine}
+
+To make the 20 minutes count, it'd help to know:
+${intake.map((q) => `  • ${q}`).join("\n")}
+
+Talk soon,
+Munir
+NextGen AI`;
+
+  const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1a1a1a;max-width:560px;margin:0 auto;">
+  <p>Hi ${esc(first)},</p>
+  <p>Thanks for the quick chat — great to connect. As mentioned, this is a free, no-obligation exploratory call: I'll look at <strong>${esc(lead.businessName || "your business")}</strong> and bring a couple of concrete ways AI could save you time or money.</p>
+  <p>${bookLineHtml}</p>
+  <p>To make the 20 minutes count, it'd help to know:</p>
+  <ul>${intake.map((q) => `<li>${esc(q)}</li>`).join("")}</ul>
+  <p>Talk soon,<br/>Munir<br/><strong>NextGen AI</strong></p>
+</div>`;
+
+  try {
+    await getTransport().sendMail({
+      from: `"NextGen AI" <${fromAddr}>`,
+      to: lead.email,
+      replyTo,
+      subject: "Your NextGen AI call — a couple of quick things",
+      html,
+      text,
+    });
+    return { sent: true };
+  } catch (err) {
+    return { sent: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /**
  * Sends the welcome email. Never throws — returns a small result the caller can
  * log. A failure here must never break the post-call webhook.

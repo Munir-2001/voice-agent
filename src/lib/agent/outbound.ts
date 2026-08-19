@@ -43,6 +43,7 @@ export function callerNumberIds(): string[] {
 export async function placeOutboundCall(
   lead: OutboundLead,
   agentPhoneNumberId: string,
+  agentId?: string, // per-campaign agent; falls back to the env default
 ) {
   const { brief } = researchLead({
     name: lead.name,
@@ -54,6 +55,9 @@ export async function placeOutboundCall(
   const dynamic_variables: Record<string, string> = {
     name: lead.name,
     business_name: lead.business_name,
+    // `company` is an alias of business_name so prompts can use either {{company}}
+    // or {{business_name}} (the NextGen AI prompt uses {{company}}).
+    company: lead.business_name,
     industry: lead.industry,
     industry_hook: playbookForIndustry(lead.industry)?.valueHook ?? "",
     lead_brief: brief,
@@ -71,7 +75,7 @@ export async function placeOutboundCall(
         "xi-api-key": process.env.ELEVENLABS_API_KEY!,
       },
       body: JSON.stringify({
-        agent_id: process.env.ELEVENLABS_AGENT_ID,
+        agent_id: agentId || process.env.ELEVENLABS_AGENT_ID,
         agent_phone_number_id: agentPhoneNumberId,
         to_number: lead.phone,
         conversation_initiation_client_data: { dynamic_variables },

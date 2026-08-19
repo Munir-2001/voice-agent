@@ -52,6 +52,9 @@ function mapLead(r: Row): Lead {
     contactedAt: (r.contacted_at as string) ?? null,
     consentSource: (r.consent_source as string) ?? null,
     uploadedAt: (r.uploaded_at as string) ?? new Date(0).toISOString(),
+    website: (r.website as string) ?? null,
+    meetingEmail: (r.meeting_email as string) ?? null,
+    meetingCity: (r.meeting_city as string) ?? null,
   };
 }
 
@@ -175,7 +178,12 @@ export async function getCampaignSettings(): Promise<CampaignSettings> {
 // human hasn't already called it back. Used by the page AND the counts so they
 // never disagree.
 function isWaiting(l: Lead): boolean {
-  return (l.status === "interested" || l.status === "callback") && !l.contactedAt;
+  return (
+    (l.status === "interested" ||
+      l.status === "callback" ||
+      l.status === "meeting_booked") &&
+    !l.contactedAt
+  );
 }
 
 // Lightweight count for the sidebar badge — one small query, no calls join.
@@ -189,13 +197,13 @@ export async function getInterestedCount(): Promise<number> {
     .from("leads")
     .select("status, contacted_at")
     .eq("workspace_id", ws)
-    .in("status", ["interested", "callback"]);
+    .in("status", ["interested", "callback", "meeting_booked"]);
   if (error) {
     const { count } = await sb
       .from("leads")
       .select("*", { count: "exact", head: true })
       .eq("workspace_id", ws)
-      .in("status", ["interested", "callback"]);
+      .in("status", ["interested", "callback", "meeting_booked"]);
     return count ?? 0;
   }
   return (data as Row[]).filter((r) => !r.contacted_at).length;

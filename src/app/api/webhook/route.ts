@@ -5,7 +5,7 @@ import { isValidTimeZone } from "@/lib/timezone";
 import type { TranscriptTurn } from "@/lib/types";
 import { verifyWebhookSignature, clientIp, apiError } from "@/lib/security";
 import { rateLimit } from "@/lib/rate-limit";
-import { sendWelcomeEmail, sendLeadNotification } from "@/lib/email";
+import { sendWelcomeEmail, sendLeadNotification, sendMeetingEmail } from "@/lib/email";
 
 // Outcomes that make a lead "warm" — they get the welcome email + appear in the
 // /interested dashboard queue for Rose to handle.
@@ -105,11 +105,28 @@ export async function POST(request: Request) {
   // (no lead) fall back to Default.
   const workspaceId = (lead?.workspace_id as number) ?? 1;
 
-  const { outcome, summary, callbackAt, timezone: statedTimezone } =
-    await classifyTranscript(transcript, {
-      now: new Date(),
-      timezone: (lead?.timezone as string) ?? undefined,
-    });
+  // The campaign goal drives how the call is classified + followed up.
+  const { data: wsSettings } = await supabase
+    .from("campaign_settings")
+    .select("goal_type")
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+  const goal =
+    (wsSettings?.goal_type as string) === "ai_meeting" ? "ai_meeting" : "financing";
+
+  const {
+    outcome,
+    summary,
+    callbackAt,
+    timezone: statedTimezone,
+    meetingEmail,
+    meetingCity,
+    industry: statedIndustry,
+  } = await classifyTranscript(transcript, {
+    now: new Date(),
+    timezone: (lead?.timezone as string) ?? undefined,
+    goal,
+  });
 
   await supabase.from("calls").insert({
     workspace_id: workspaceId,
@@ -142,19 +159,35 @@ export async function POST(request: Request) {
     // The prospect told us where they are → correct the lead's timezone (more
     // reliable than the area-code guess), so future scheduling uses real hours.
     if (isValidTimeZone(statedTimezone)) patch.timezone = statedTimezone;
+    // AI-meeting capture: store the confirmed email, city, and confirmed industry.
+    if (goal === "ai_meeting") {
+      if (meetingEmail) patch.meeting_email = meetingEmail;
+      if (meetingCity) patch.meeting_city = meetingCity;
+      if (statedIndustry) patch.industry = statedIndustry;
+    }
     await supabase.from("leads").update(patch).eq("id", leadId);
 
-    // Warm lead → (1) email the lead the welcome/next-steps message, and
-    // (2) alert the internal team (Naveed / Rosemarie). Both best-effort — email
-    // must never break the webhook. Reuses the lead fetched above.
-    if (QUALIFIED.includes(outcome) && lead) {
+    // Warm outcome → email the prospect and alert the team. Both best-effort;
+    // email must never break the webhook. Reuses the lead fetched above.
+    const qualifies =
+      goal === "ai_meeting"
+        ? ["meeting_booked", "interested", "callback"].includes(outcome)
+        : QUALIFIED.includes(outcome);
+    if (qualifies && lead) {
       const name = (lead.name as string) ?? "";
       const businessName = (lead.business_name as string) ?? "";
-      const email = (lead.email as string) ?? null;
+      // Prefer the email confirmed on the call, else the one on file.
+      const email = (meetingEmail as string) || ((lead.email as string) ?? null);
+      const tz = isValidTimeZone(statedTimezone)
+        ? statedTimezone
+        : ((lead.timezone as string) ?? null);
 
       if (email) {
-        const r = await sendWelcomeEmail({ name, businessName, email });
-        if (!r.sent) console.error("welcome email skipped:", r.reason);
+        const r =
+          goal === "ai_meeting"
+            ? await sendMeetingEmail({ name, businessName, email })
+            : await sendWelcomeEmail({ name, businessName, email });
+        if (!r.sent) console.error("prospect email skipped:", r.reason);
       }
 
       const n = await sendLeadNotification({
@@ -165,10 +198,7 @@ export async function POST(request: Request) {
         outcome,
         summary,
         callbackAt,
-        // Prefer the timezone the prospect stated on the call; else what's stored.
-        timezone: isValidTimeZone(statedTimezone)
-          ? statedTimezone
-          : ((lead.timezone as string) ?? null),
+        timezone: tz,
       });
       if (!n.sent) console.error("lead notification skipped:", n.reason);
     }

@@ -116,14 +116,31 @@ export async function runDialTick(
     }
   }
 
+  // Which statuses are re-dialable. The AI-meeting goal also retries voicemail
+  // and gatekeeper (not_decision_maker) calls; financing keeps its original set.
+  const retryable =
+    settings.goal_type === "ai_meeting"
+      ? ["pending", "callback", "no_answer", "voicemail", "not_decision_maker"]
+      : ["pending", "callback", "no_answer"];
+
   // Candidate leads not yet exhausted, in this workspace. Order by attempts first
   // so EVERY lead gets a first call before anyone is retried, then upload order.
-  const { data: candidates } = await supabase
+  let candidatesQuery = supabase
     .from("leads")
     .select("*")
     .eq("workspace_id", workspaceId)
-    .in("status", ["pending", "callback", "no_answer"])
-    .lt("attempts", settings.max_attempts)
+    .in("status", retryable)
+    .lt("attempts", settings.max_attempts);
+
+  // AI-meeting: never retry a lead the SAME day — only first-touch (never called)
+  // or leads last called before today are eligible.
+  if (settings.goal_type === "ai_meeting") {
+    candidatesQuery = candidatesQuery.or(
+      `last_called_at.is.null,last_called_at.lt.${startOfDay.toISOString()}`,
+    );
+  }
+
+  const { data: candidates } = await candidatesQuery
     .order("attempts", { ascending: true })
     .order("created_at", { ascending: true })
     .limit(50);
@@ -154,8 +171,14 @@ export async function runDialTick(
   const batchSize = Math.min(settings.calls_per_tick, remainingCap);
   const eligible = inWindow.filter((l) => !blocked.has(l.phone)).slice(0, batchSize);
 
-  // Caller-ID pool = ElevenLabs phone-number IDs (phnum_…), rotated per call.
-  const phoneNumberIds = callerNumberIds();
+  // Caller-ID pool: the campaign's own numbers if set (e.g. the California number
+  // for NextGen), else the env default. Rotated per call.
+  const phoneNumberIds = settings.caller_number_ids
+    ? String(settings.caller_number_ids)
+        .split(",")
+        .map((s: string) => s.trim())
+        .filter(Boolean)
+    : callerNumberIds();
   if (phoneNumberIds.length === 0) {
     console.error("dial-tick: no ELEVENLABS_PHONE_NUMBER_ID(S) configured");
     return { workspaceId, skipped: "no caller numbers configured" };
@@ -179,7 +202,11 @@ export async function runDialTick(
     const agentPhoneNumberId =
       phoneNumberIds[(placedToday + i) % phoneNumberIds.length];
     try {
-      await placeOutboundCall(lead, agentPhoneNumberId);
+      await placeOutboundCall(
+        lead,
+        agentPhoneNumberId,
+        settings.elevenlabs_agent_id ?? undefined,
+      );
       await supabase
         .from("leads")
         .update({

@@ -16,13 +16,39 @@ export interface Classification {
   summary: string;
   callbackAt: string | null;
   timezone: string | null; // IANA, only if the prospect stated where they are
+  // AI-meeting campaign extras (null for the financing goal)
+  meetingEmail?: string | null; // email confirmed/corrected on the call
+  meetingCity?: string | null; // city stated on the call
+  industry?: string | null; // industry confirmed or clear from the company
 }
 
-const SYSTEM_PROMPT = `You classify a completed outbound sales call transcript for a business-financing campaign.
+export type ClassifyGoal = "financing" | "ai_meeting";
+
+// Shared timezone/callback rules reused by both prompts.
+const TIME_RULES = `For timezone: if the prospect states where they are (a city, state, or region), infer their IANA timezone (Texas->"America/Chicago", California->"America/Los_Angeles", Arizona->"America/Phoenix", New York->"America/New_York", etc.) and return it in "timezone"; else null.
+For callbackAt: resolve any relative time the prospect gives ("tomorrow at 2pm", "Monday morning", "after 3") against the "Current time" provided below, in the PROSPECT'S timezone (their stated location if given, else the assumed timezone). Output a full ISO8601 timestamp WITH that timezone's UTC offset (e.g. 2026-08-17T14:00:00-05:00). "morning"≈9:00, "afternoon"≈14:00, "evening"≈17:00 local. If no specific time was requested, callbackAt is null.`;
+
+const FINANCING_PROMPT = `You classify a completed outbound sales call transcript for a business-financing campaign.
 Return STRICT JSON: {"outcome": one of ["interested","not_interested","callback","voicemail","no_answer","opted_out"], "summary": "2 sentences max", "callbackAt": ISO8601 or null, "timezone": IANA timezone string or null}.
 Rules: if the prospect asked to be removed or to stop calling, outcome MUST be "opted_out". If they asked to be called at a specific time, outcome is "callback" and set callbackAt. Never invent interest that isn't there.
-For timezone: if the prospect states where they are (a city, state, or region, e.g. "I'm in Texas", "we're out in Phoenix"), infer their IANA timezone (Texas->"America/Chicago", California->"America/Los_Angeles", Arizona->"America/Phoenix", New York->"America/New_York", etc.) and return it in "timezone". If they never say where they are, return null.
-For callbackAt: resolve any relative time the prospect gives ("tomorrow at 2pm", "Monday morning", "after 3") against the "Current time" provided below, in the PROSPECT'S timezone — use their STATED location's timezone if they gave one, otherwise the assumed timezone provided. Output a full ISO8601 timestamp WITH that timezone's UTC offset (e.g. 2026-08-17T14:00:00-05:00). "morning"≈9:00, "afternoon"≈14:00, "evening"≈17:00 local unless they say otherwise. If no specific time was requested, callbackAt is null.`;
+${TIME_RULES}`;
+
+const MEETING_PROMPT = `You classify a completed outbound call transcript for NextGen AI. The call's goal was to book a FREE exploratory AI-consulting meeting and capture the prospect's email + preferred time.
+Return STRICT JSON: {"outcome": one of ["meeting_booked","callback","interested","not_interested","voicemail","no_answer","not_decision_maker","bad_number","opted_out","needs_review"], "summary": "2 sentences max", "callbackAt": ISO8601 or null, "timezone": IANA timezone string or null, "meetingEmail": string or null, "meetingCity": string or null, "industry": string or null}.
+Outcome rules:
+- "meeting_booked": prospect agreed to the meeting AND gave or confirmed an email (a time is a plus).
+- "callback": wants to be contacted at a specific later time — set callbackAt.
+- "interested": warm/engaged but did NOT commit to a meeting or a time.
+- "not_interested": declined.
+- "voicemail": reached a recorded greeting / answering machine.
+- "no_answer": no meaningful conversation happened.
+- "not_decision_maker": reached a gatekeeper or someone who isn't the decision-maker.
+- "bad_number": wrong number, disconnected, or not the business.
+- "opted_out": asked to stop calling or be removed (this ALWAYS wins).
+- "needs_review": ambiguous/unusual — a human should check.
+Capture: meetingEmail = the email confirmed or newly given on the call (use the corrected one if they re-spelled it), else null. meetingCity = the city they said they're in, else null. industry = the industry they confirmed or that's clear from the company, else null.
+Never invent a booked meeting that didn't happen.
+${TIME_RULES}`;
 
 // OpenAI-compatible classification providers, tried in order. Groq is primary
 // (fastest, free); DeepSeek and Together are automatic fallbacks so a Groq rate
@@ -96,6 +122,9 @@ async function callProvider(
     summary: parsed.summary,
     callbackAt: parsed.callbackAt ?? null,
     timezone: parsed.timezone ?? null,
+    meetingEmail: parsed.meetingEmail ?? null,
+    meetingCity: parsed.meetingCity ?? null,
+    industry: parsed.industry ?? null,
   };
 }
 
@@ -110,8 +139,9 @@ async function callProvider(
  */
 export async function classifyTranscript(
   transcript: TranscriptTurn[],
-  opts?: { now?: Date; timezone?: string },
+  opts?: { now?: Date; timezone?: string; goal?: ClassifyGoal },
 ): Promise<Classification> {
+  const goal: ClassifyGoal = opts?.goal ?? "financing";
   // Guardrail first — deterministic, model-independent.
   if (hasOptOutLanguage(transcript)) {
     return {
@@ -154,7 +184,7 @@ export async function classifyTranscript(
   const contextPrompt = `Current time (UTC): ${now.toISOString()}. Assumed prospect timezone from their phone area code (may be wrong if they've moved): ${timezone} — locally that's ${nowLocal}. Resolve any callback time against the current time, preferring the prospect's STATED location timezone if they mention one.`;
 
   const messages: ChatMessage[] = [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: goal === "ai_meeting" ? MEETING_PROMPT : FINANCING_PROMPT },
     { role: "system", content: contextPrompt },
     { role: "user", content: text },
   ];
