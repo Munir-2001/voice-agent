@@ -21,7 +21,9 @@ export default async function OverviewPage() {
   const since = new Date(Date.now() - 35 * 86_400_000).toISOString();
   const [leads, calls] = await Promise.all([getLeads(), getCalls(2000, since)]);
   const stats = computeStats(leads, calls);
-  const warm = stats.interested + stats.callbacks;
+  // Callbacks now live in their own queue, so the "warm" banner (which links to
+  // /interested) counts only genuinely interested leads.
+  const warm = stats.interested;
   const maxCount = Math.max(1, ...stats.outcomeCounts.map((c) => c.count));
 
   // Real feeds for the live row (no simulated data).

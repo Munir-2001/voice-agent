@@ -5,7 +5,7 @@ import { DialNowButton } from "@/components/dial-now-button";
 import { CampaignProvider } from "@/components/campaign-context";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Separator } from "@/components/ui/separator";
-import { getCampaignSettings, getInterestedCount } from "@/lib/data";
+import { getCampaignSettings, getInterestedCount, getCallbackCount } from "@/lib/data";
 import { getSessionUser } from "@/lib/auth";
 import { getUserWorkspaces, getActiveWorkspaceId } from "@/lib/workspace";
 
@@ -14,10 +14,11 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const [settings, interestedCount, user, workspaces, activeWorkspaceId] =
+  const [settings, interestedCount, callbackCount, user, workspaces, activeWorkspaceId] =
     await Promise.all([
       getCampaignSettings(),
       getInterestedCount(),
+      getCallbackCount(),
       getSessionUser(),
       getUserWorkspaces(),
       getActiveWorkspaceId(),
@@ -27,6 +28,7 @@ export default async function DashboardLayout({
       <SidebarProvider>
         <AppSidebar
           interestedCount={interestedCount}
+          callbackCount={callbackCount}
           userEmail={user?.email ?? ""}
           workspaces={workspaces}
           activeWorkspaceId={activeWorkspaceId}

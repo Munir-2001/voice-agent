@@ -8,8 +8,9 @@ import { rateLimit } from "@/lib/rate-limit";
 import { sendWelcomeEmail, sendLeadNotification, sendMeetingEmail, emailProfile } from "@/lib/email";
 
 // Outcomes that make a lead "warm" — they get the welcome email + appear in the
-// /interested dashboard queue for Rose to handle.
-const QUALIFIED: string[] = ["interested", "callback"];
+// /interested dashboard queue. Callbacks are deliberately NOT here: they're their
+// own category (/callbacks queue) and are not treated as interested/success.
+const QUALIFIED: string[] = ["interested"];
 
 // ElevenLabs post-call webhook. Verifies the signed payload (HMAC + timestamp),
 // stores the call, classifies the transcript, and updates the lead's status.
@@ -180,7 +181,7 @@ export async function POST(request: Request) {
     // email must never break the webhook. Reuses the lead fetched above.
     const qualifies =
       goal === "ai_meeting"
-        ? ["meeting_booked", "interested", "callback"].includes(outcome)
+        ? ["meeting_booked", "interested"].includes(outcome)
         : QUALIFIED.includes(outcome);
     if (qualifies && lead) {
       // Per-campaign email identity (own SMTP/brand/reply-to/notify list).

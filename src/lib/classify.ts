@@ -11,6 +11,20 @@ export function hasOptOutLanguage(transcript: TranscriptTurn[]): boolean {
   );
 }
 
+// Voicemail-greeting guardrail. A recorded greeting ("leave a message", "you've
+// reached…", "after the tone") is NOT a live callback request — but its wording
+// ("I'll call you right back") fools the model into "callback". These phrases are
+// said almost exclusively by answering machines, so we deterministically force
+// "voicemail" and never let such a call reach the warm/Interested queue.
+const VOICEMAIL_PATTERNS =
+  /\b(leave (a|your|me a) message|after the (tone|beep)|at the (tone|beep)|you'?ve reached|please record|record your message|sorry i missed your call|unavailable to take your call|can'?t (take|get to) your call right now)\b/i;
+
+export function looksLikeVoicemail(transcript: TranscriptTurn[]): boolean {
+  return transcript.some(
+    (t) => t.role === "prospect" && VOICEMAIL_PATTERNS.test(t.text),
+  );
+}
+
 export interface Classification {
   outcome: CallOutcome;
   summary: string;
@@ -38,10 +52,10 @@ Return STRICT JSON: {"outcome": one of ["meeting_booked","callback","interested"
 Outcome rules (evaluate in this priority order; pick the FIRST that fits):
 - "opted_out": asked to stop calling or be removed (this ALWAYS wins).
 - "not_decision_maker": the call only ever reached a receptionist, assistant, answering service, IVR/phone menu, or a screening system (e.g. "record your name and reason and I'll see if they're available", "who's calling?", "they're not available") and NEVER reached the actual owner/decision-maker who could agree to a meeting. Politely taking a message is NOT interest.
-- "voicemail": reached a recorded greeting / answering machine (a beep or "leave a message after the tone").
+- "voicemail": reached a recorded greeting / answering machine. A greeting such as "leave a message and I'll call you (right) back", "you've reached…", "after the tone/beep", or "sorry I missed your call" is VOICEMAIL — a RECORDING promising to call back is NOT a live person requesting a callback. If the only prospect turn is such a greeting (and there's no real back-and-forth), it is voicemail.
 - "bad_number": wrong number, disconnected, or not the business.
 - "meeting_booked": the DECISION-MAKER agreed to the meeting AND gave or confirmed an email (a time is a plus).
-- "callback": the DECISION-MAKER wants to be contacted at a specific later time — set callbackAt.
+- "callback": a LIVE person explicitly asked to be contacted at a specific later time — set callbackAt. This requires a genuine two-way exchange, never a recorded greeting.
 - "interested": the DECISION-MAKER THEMSELVES was genuinely warm about the idea and open to a meeting but did NOT commit to one or give a time. Do NOT mark "interested" just because the call was polite, or because a gatekeeper/receptionist engaged — interest must come from the actual prospect.
 - "not_interested": the decision-maker declined.
 - "no_answer": no meaningful conversation happened (silence, immediate hang-up).
@@ -146,11 +160,20 @@ export async function classifyTranscript(
   opts?: { now?: Date; timezone?: string; goal?: ClassifyGoal },
 ): Promise<Classification> {
   const goal: ClassifyGoal = opts?.goal ?? "financing";
-  // Guardrail first — deterministic, model-independent.
+  // Guardrails first — deterministic, model-independent.
   if (hasOptOutLanguage(transcript)) {
     return {
       outcome: "opted_out",
       summary: "Prospect requested removal from the calling list.",
+      callbackAt: null,
+      timezone: null,
+    };
+  }
+  // A recorded voicemail greeting must never be scored as a warm callback.
+  if (looksLikeVoicemail(transcript)) {
+    return {
+      outcome: "voicemail",
+      summary: "Reached a voicemail greeting; no live conversation took place.",
       callbackAt: null,
       timezone: null,
     };

@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   PhoneCall,
   FlaskConical,
+  Clock,
 } from "lucide-react";
 import {
   Sidebar,
@@ -35,6 +36,7 @@ const NAV = [
   { title: "Overview", href: "/overview", icon: LayoutDashboard },
   { title: "Call log", href: "/calls", icon: PhoneCall },
   { title: "Interested", href: "/interested", icon: Sparkles },
+  { title: "Callbacks", href: "/callbacks", icon: Clock },
   { title: "All leads", href: "/leads", icon: Users },
   { title: "Upload", href: "/upload", icon: Upload },
 ];
@@ -50,11 +52,13 @@ const MANAGE = [
 
 export function AppSidebar({
   interestedCount = 0,
+  callbackCount = 0,
   userEmail = "",
   workspaces = [],
   activeWorkspaceId = 1,
 }: {
   interestedCount?: number;
+  callbackCount?: number;
   userEmail?: string;
   workspaces?: WorkspaceOption[];
   activeWorkspaceId?: number;
@@ -64,9 +68,12 @@ export function AppSidebar({
   const pathname = usePathname();
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(href + "/");
-  // Only the Interested item carries a badge, and only when leads are waiting.
-  const badgeFor = (href: string) =>
-    href === "/interested" && interestedCount > 0 ? String(interestedCount) : null;
+  // Interested and Callbacks each carry a badge when leads are waiting.
+  const badgeFor = (href: string) => {
+    if (href === "/interested" && interestedCount > 0) return String(interestedCount);
+    if (href === "/callbacks" && callbackCount > 0) return String(callbackCount);
+    return null;
+  };
 
   return (
     <Sidebar variant="inset">

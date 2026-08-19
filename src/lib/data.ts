@@ -175,16 +175,21 @@ export async function getCampaignSettings(): Promise<CampaignSettings> {
   return data ? mapSettings(data as Row) : SAFE_SETTINGS;
 }
 
-// A lead is "waiting for callback" only if it's interested/callback AND the
-// human hasn't already called it back. Used by the page AND the counts so they
-// never disagree.
+// A lead is "interested/warm" only if it's interested or has a booked meeting
+// AND the human hasn't already actioned it. Callbacks are deliberately EXCLUDED
+// — they're their own category (isCallbackWaiting) so a "call me later" is never
+// counted as a warm/success lead. Used by the page AND counts so they agree.
 function isWaiting(l: Lead): boolean {
   return (
-    (l.status === "interested" ||
-      l.status === "callback" ||
-      l.status === "meeting_booked") &&
+    (l.status === "interested" || l.status === "meeting_booked") &&
     !l.contactedAt
   );
+}
+
+// A lead waiting in the separate Callbacks queue: asked to be called at a later
+// time and not yet actioned.
+function isCallbackWaiting(l: Lead): boolean {
+  return l.status === "callback" && !l.contactedAt;
 }
 
 // Lightweight count for the sidebar badge — one small query, no calls join.
@@ -198,13 +203,35 @@ export async function getInterestedCount(): Promise<number> {
     .from("leads")
     .select("status, contacted_at")
     .eq("workspace_id", ws)
-    .in("status", ["interested", "callback", "meeting_booked"]);
+    .in("status", ["interested", "meeting_booked"]);
   if (error) {
     const { count } = await sb
       .from("leads")
       .select("*", { count: "exact", head: true })
       .eq("workspace_id", ws)
-      .in("status", ["interested", "callback", "meeting_booked"]);
+      .in("status", ["interested", "meeting_booked"]);
+    return count ?? 0;
+  }
+  return (data as Row[]).filter((r) => !r.contacted_at).length;
+}
+
+// Callbacks-queue badge count — mirrors getInterestedCount but for the separate
+// callback bucket (leads that asked to be called at a later time).
+export async function getCallbackCount(): Promise<number> {
+  if (!isSupabaseConfigured()) return sampleLeads.filter(isCallbackWaiting).length;
+  const ws = await getActiveWorkspaceId();
+  const sb = createServiceClient();
+  const { data, error } = await sb
+    .from("leads")
+    .select("status, contacted_at")
+    .eq("workspace_id", ws)
+    .eq("status", "callback");
+  if (error) {
+    const { count } = await sb
+      .from("leads")
+      .select("*", { count: "exact", head: true })
+      .eq("workspace_id", ws)
+      .eq("status", "callback");
     return count ?? 0;
   }
   return (data as Row[]).filter((r) => !r.contacted_at).length;
@@ -304,6 +331,19 @@ export async function getInterestedLeads(): Promise<{ lead: Lead; call: Call | n
   return leads.filter(isWaiting).map((lead) => ({ lead, call: latestByLead.get(lead.id) ?? null }));
 }
 
+// The separate Callbacks queue: leads that asked to be called back at a later
+// time, with their latest call for context.
+export async function getCallbackLeads(): Promise<{ lead: Lead; call: Call | null }[]> {
+  const [leads, calls] = await Promise.all([getLeads(), getCalls(5000)]);
+  const latestByLead = new Map<string, Call>();
+  for (const c of calls) {
+    if (!latestByLead.has(c.leadId)) latestByLead.set(c.leadId, c); // newest-first
+  }
+  return leads
+    .filter(isCallbackWaiting)
+    .map((lead) => ({ lead, call: latestByLead.get(lead.id) ?? null }));
+}
+
 // ── derived overview stats (pure) ───────────────────────────────────────────
 export interface OverviewStats {
   totalLeads: number;
@@ -347,7 +387,10 @@ export function computeStats(leads: Lead[], calls: Call[]): OverviewStats {
   // "Waiting" counts match the /interested page (exclude already-contacted).
   const waiting = leads.filter(isWaiting);
   const interested = waiting.filter((l) => l.status === "interested").length;
-  const callbacks = waiting.filter((l) => l.status === "callback").length;
+  // Callbacks are their own bucket (the /callbacks queue), not part of "waiting".
+  const callbacks = leads.filter(
+    (l) => l.status === "callback" && !l.contactedAt,
+  ).length;
 
   // Full status distribution (raw — includes every LeadStatus).
   const order: LeadStatus[] = [
