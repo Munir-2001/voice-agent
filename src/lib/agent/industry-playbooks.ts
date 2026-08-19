@@ -89,8 +89,46 @@ export const INDUSTRY_PLAYBOOKS: IndustryPlaybook[] = [
 ];
 
 export function playbookForIndustry(industry: string): IndustryPlaybook | undefined {
-  const q = industry.toLowerCase();
+  const q = industry.trim().toLowerCase();
+  // Guard: a blank/near-blank industry must NOT match. `"label".includes("")`
+  // is always true, so without this an empty industry silently matched the FIRST
+  // playbook (restaurant) — the "walk-in cooler" hook bug.
+  if (q.length < 3) return undefined;
   return INDUSTRY_PLAYBOOKS.find(
     (p) => q.includes(p.key) || p.label.toLowerCase().includes(q) || q.includes(p.label.toLowerCase()),
   );
+}
+
+// Automation-campaign value hooks (NextGen AI / Emma). SAME industries as above,
+// but framed around saving time and never missing a customer — NEVER financing.
+// Keyed by the playbook `key`; falls back to a strong generic line.
+const AUTOMATION_HOOKS: Record<string, string> = {
+  restaurant:
+    "Most restaurants lose orders and reservations to missed calls during the rush — we can have every call and message answered and booked automatically, even at peak.",
+  medical:
+    "Practices lose patients to phones nobody can answer and endless scheduling back-and-forth — we automate the booking, reminders, and intake so the front desk isn't drowning.",
+  dental:
+    "A lot of the front-desk grind — booking, reminders, no-show follow-ups — can run itself, so your team fills the schedule instead of chasing it.",
+  hvac:
+    "Every missed call in this trade is a job going to whoever picked up first — we make sure every call and after-hours request gets answered and booked automatically.",
+  manufacturing:
+    "Quotes, order updates, and follow-ups eat hours of admin — we automate the repetitive back-office work so your team ships instead of chasing paperwork.",
+  retail:
+    "We automate the customer questions, order updates, and follow-ups that pull staff off the floor — so they sell instead of sitting on the phone.",
+  automotive:
+    "Missed calls and no-shows cost shops real revenue — we get every call answered and every appointment confirmed automatically, so the bays stay full.",
+  hospitality:
+    "Guest calls, bookings, and follow-ups can run around the clock automatically — so you capture every reservation without tying up the front desk.",
+  "professional-services":
+    "The intake, scheduling, and follow-up that eat your billable hours can run automatically — so you spend time on clients, not admin.",
+};
+
+const DEFAULT_AUTOMATION_HOOK =
+  "Most owners are quietly losing hours — and the odd customer — to calls, follow-ups, and admin that a system could handle around the clock; that's exactly the kind of thing we help set up.";
+
+// The automation-campaign equivalent of valueHook. Used by the NextGen agent so
+// Emma never gets handed a lending/financing line.
+export function automationHookForIndustry(industry: string): string {
+  const p = playbookForIndustry(industry);
+  return (p && AUTOMATION_HOOKS[p.key]) || DEFAULT_AUTOMATION_HOOK;
 }

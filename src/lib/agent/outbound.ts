@@ -3,7 +3,12 @@ import "server-only";
 // test-call endpoint, so a test call exercises the exact same path as a real one.
 
 import { researchLead } from "@/lib/agent/research";
-import { playbookForIndustry } from "@/lib/agent/industry-playbooks";
+import {
+  playbookForIndustry,
+  automationHookForIndustry,
+} from "@/lib/agent/industry-playbooks";
+
+export type CampaignGoal = "financing" | "ai_meeting";
 
 export interface OutboundLead {
   id: string; // "" for a standalone test call not tied to a DB lead
@@ -44,6 +49,7 @@ export async function placeOutboundCall(
   lead: OutboundLead,
   agentPhoneNumberId: string,
   agentId?: string, // per-campaign agent; falls back to the env default
+  goal: CampaignGoal = "financing", // which campaign — drives the value hook
 ) {
   const { brief } = researchLead({
     name: lead.name,
@@ -62,7 +68,14 @@ export async function placeOutboundCall(
     // or {{business_name}} (the NextGen AI prompt uses {{company}}).
     company: lead.business_name,
     industry: lead.industry,
-    industry_hook: playbookForIndustry(lead.industry)?.valueHook ?? "",
+    // Value hook MUST match the campaign: the AI-meeting agent (Emma) gets an
+    // automation hook, the financing agent gets the lending playbook line.
+    // Sending the financing hook to Emma was the "walk-in cooler / Financing
+    // helps you…" bug seen in the NextGen agent's dynamic variables.
+    industry_hook:
+      goal === "ai_meeting"
+        ? automationHookForIndustry(lead.industry)
+        : playbookForIndustry(lead.industry)?.valueHook ?? "",
     lead_brief: brief,
   };
   // Only tie the call to a lead when there is one (test calls omit this so the

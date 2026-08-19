@@ -35,17 +35,17 @@ ${TIME_RULES}`;
 
 const MEETING_PROMPT = `You classify a completed outbound call transcript for NextGen AI. The call's goal was to book a FREE exploratory AI-consulting meeting and capture the prospect's email + preferred time.
 Return STRICT JSON: {"outcome": one of ["meeting_booked","callback","interested","not_interested","voicemail","no_answer","not_decision_maker","bad_number","opted_out","needs_review"], "summary": "2 sentences max", "callbackAt": ISO8601 or null, "timezone": IANA timezone string or null, "meetingEmail": string or null, "meetingCity": string or null, "industry": string or null}.
-Outcome rules:
-- "meeting_booked": prospect agreed to the meeting AND gave or confirmed an email (a time is a plus).
-- "callback": wants to be contacted at a specific later time — set callbackAt.
-- "interested": warm/engaged but did NOT commit to a meeting or a time.
-- "not_interested": declined.
-- "voicemail": reached a recorded greeting / answering machine.
-- "no_answer": no meaningful conversation happened.
-- "not_decision_maker": reached a gatekeeper or someone who isn't the decision-maker.
-- "bad_number": wrong number, disconnected, or not the business.
+Outcome rules (evaluate in this priority order; pick the FIRST that fits):
 - "opted_out": asked to stop calling or be removed (this ALWAYS wins).
-- "needs_review": ambiguous/unusual — a human should check.
+- "not_decision_maker": the call only ever reached a receptionist, assistant, answering service, IVR/phone menu, or a screening system (e.g. "record your name and reason and I'll see if they're available", "who's calling?", "they're not available") and NEVER reached the actual owner/decision-maker who could agree to a meeting. Politely taking a message is NOT interest.
+- "voicemail": reached a recorded greeting / answering machine (a beep or "leave a message after the tone").
+- "bad_number": wrong number, disconnected, or not the business.
+- "meeting_booked": the DECISION-MAKER agreed to the meeting AND gave or confirmed an email (a time is a plus).
+- "callback": the DECISION-MAKER wants to be contacted at a specific later time — set callbackAt.
+- "interested": the DECISION-MAKER THEMSELVES was genuinely warm about the idea and open to a meeting but did NOT commit to one or give a time. Do NOT mark "interested" just because the call was polite, or because a gatekeeper/receptionist engaged — interest must come from the actual prospect.
+- "not_interested": the decision-maker declined.
+- "no_answer": no meaningful conversation happened (silence, immediate hang-up).
+- "needs_review": genuinely ambiguous/unusual — a human should check.
 Capture (fill these whenever present, for ANY outcome — especially meeting_booked):
 - meetingEmail: the email confirmed or newly given (normalize spoken forms like "name at domain dot com" → name@domain.com; use the corrected one if re-spelled), else null.
 - meetingCity: the city, state, or region they said they're in (e.g. "Austin", "California"), else null.

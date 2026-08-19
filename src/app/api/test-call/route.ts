@@ -17,6 +17,8 @@ const Body = z.object({
   name: z.string().max(80).optional(),
   businessName: z.string().max(120).optional(),
   industry: z.string().max(80).optional(),
+  // Which campaign hook to send — "ai_meeting" to test the NextGen (Emma) hook.
+  goal: z.enum(["financing", "ai_meeting"]).optional().default("financing"),
 });
 
 export async function POST(request: Request) {
@@ -31,7 +33,7 @@ export async function POST(request: Request) {
 
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return apiError(400, "Provide a valid E.164 toNumber");
-  const { toNumber, name, businessName, industry } = parsed.data;
+  const { toNumber, name, businessName, industry, goal } = parsed.data;
 
   const ids = callerNumberIds();
   if (ids.length === 0) return apiError(503, "No caller number configured");
@@ -47,6 +49,8 @@ export async function POST(request: Request) {
         phone: toNumber,
       },
       ids[0],
+      undefined, // use the env default agent for standalone test calls
+      goal,
     );
     return NextResponse.json({ ok: true, calling: toNumber, result });
   } catch (err) {

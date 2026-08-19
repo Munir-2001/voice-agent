@@ -217,6 +217,7 @@ export async function runDialTick(
         lead,
         agentPhoneNumberId,
         settings.elevenlabs_agent_id ?? undefined,
+        settings.goal_type === "ai_meeting" ? "ai_meeting" : "financing",
       );
       await supabase
         .from("leads")
