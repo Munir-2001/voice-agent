@@ -5,7 +5,7 @@ import { isValidTimeZone } from "@/lib/timezone";
 import type { TranscriptTurn } from "@/lib/types";
 import { verifyWebhookSignature, clientIp, apiError } from "@/lib/security";
 import { rateLimit } from "@/lib/rate-limit";
-import { sendWelcomeEmail, sendLeadNotification, sendMeetingEmail } from "@/lib/email";
+import { sendWelcomeEmail, sendLeadNotification, sendMeetingEmail, emailProfile } from "@/lib/email";
 
 // Outcomes that make a lead "warm" — they get the welcome email + appear in the
 // /interested dashboard queue for Rose to handle.
@@ -183,6 +183,8 @@ export async function POST(request: Request) {
         ? ["meeting_booked", "interested", "callback"].includes(outcome)
         : QUALIFIED.includes(outcome);
     if (qualifies && lead) {
+      // Per-campaign email identity (own SMTP/brand/reply-to/notify list).
+      const profile = emailProfile(goal);
       const name = (lead.name as string) ?? "";
       const businessName = (lead.business_name as string) ?? "";
       // Prefer the email confirmed on the call, else the one on file.
@@ -194,21 +196,25 @@ export async function POST(request: Request) {
       if (email) {
         const r =
           goal === "ai_meeting"
-            ? await sendMeetingEmail({ name, businessName, email })
-            : await sendWelcomeEmail({ name, businessName, email });
+            ? await sendMeetingEmail({ name, businessName, email }, profile)
+            : await sendWelcomeEmail({ name, businessName, email }, profile);
         if (!r.sent) console.error("prospect email skipped:", r.reason);
       }
 
-      const n = await sendLeadNotification({
-        name,
-        businessName,
-        phone: (lead.phone as string) ?? "",
-        email,
-        outcome,
-        summary,
-        callbackAt,
-        timezone: tz,
-      });
+      // The profile's own notify list keeps NextGen alerts separate from Rose's.
+      const n = await sendLeadNotification(
+        {
+          name,
+          businessName,
+          phone: (lead.phone as string) ?? "",
+          email,
+          outcome,
+          summary,
+          callbackAt,
+          timezone: tz,
+        },
+        profile,
+      );
       if (!n.sent) console.error("lead notification skipped:", n.reason);
     }
   }

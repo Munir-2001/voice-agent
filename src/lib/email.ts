@@ -31,25 +31,86 @@ interface WelcomeLead {
   email: string;
 }
 
-export function isEmailConfigured(): boolean {
-  return Boolean(
-    process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS,
-  );
+export type CampaignGoal = "financing" | "ai_meeting";
+
+// A fully self-contained email identity for one campaign: its own SMTP account,
+// display name, reply-to, and internal-notify list. This is what keeps the admin
+// (NextGen) campaign completely separate from Rose's financing email.
+export interface EmailProfile {
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+  fromName: string;
+  replyTo: string;
+  notify: string[];
 }
 
-// Reused across warm invocations (module scope persists on a warm serverless
-// instance), so we don't reconnect SMTP on every call.
-let transporter: Transporter | null = null;
-function getTransport(): Transporter {
-  if (transporter) return transporter;
+const list = (v?: string) =>
+  (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+
+/**
+ * Resolve the email profile for a campaign goal.
+ * - financing → the shared SMTP_* / EMAIL_* vars (Rose).
+ * - ai_meeting → NEXTGEN_SMTP_* / NEXTGEN_* vars (admin). Each NextGen field
+ *   falls back to the shared one if unset, so it works today from the shared
+ *   inbox and becomes a fully separate sender the moment you add NextGen creds.
+ */
+export function emailProfile(goal: CampaignGoal = "financing"): EmailProfile {
+  const host = process.env.SMTP_HOST ?? "";
   const port = Number(process.env.SMTP_PORT ?? 465);
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
+  const user = process.env.SMTP_USER ?? "";
+  const pass = process.env.SMTP_PASS ?? "";
+
+  if (goal === "ai_meeting") {
+    const ngUser = process.env.NEXTGEN_SMTP_USER || user;
+    const notify =
+      list(process.env.NEXTGEN_NOTIFY).length > 0
+        ? list(process.env.NEXTGEN_NOTIFY)
+        : list(process.env.NEXTGEN_REPLY_TO).length > 0
+          ? list(process.env.NEXTGEN_REPLY_TO)
+          : list(process.env.EMAIL_NOTIFY);
+    return {
+      host: process.env.NEXTGEN_SMTP_HOST || host,
+      port: Number(process.env.NEXTGEN_SMTP_PORT || port),
+      user: ngUser,
+      pass: process.env.NEXTGEN_SMTP_PASS || pass,
+      fromName: process.env.NEXTGEN_FROM_NAME || "NextGen AI",
+      replyTo: process.env.NEXTGEN_REPLY_TO || process.env.EMAIL_REPLY_TO || ngUser,
+      notify,
+    };
+  }
+
+  return {
+    host,
     port,
-    secure: port === 465, // 465 = implicit TLS; 587 = STARTTLS
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    user,
+    pass,
+    fromName: process.env.EMAIL_FROM_NAME || COMPANY_NAME,
+    replyTo: process.env.EMAIL_REPLY_TO || user,
+    notify: list(process.env.EMAIL_NOTIFY),
+  };
+}
+
+export function isEmailConfigured(p: EmailProfile = emailProfile()): boolean {
+  return Boolean(p.host && p.user && p.pass);
+}
+
+// One transporter per (host,user) so financing and NextGen keep separate SMTP
+// connections. Cached at module scope (persists on a warm serverless instance).
+const transporters = new Map<string, Transporter>();
+function transportFor(p: EmailProfile): Transporter {
+  const key = `${p.host}|${p.user}`;
+  const cached = transporters.get(key);
+  if (cached) return cached;
+  const t = nodemailer.createTransport({
+    host: p.host,
+    port: p.port,
+    secure: p.port === 465, // 465 = implicit TLS; 587 = STARTTLS
+    auth: { user: p.user, pass: p.pass },
   });
-  return transporter;
+  transporters.set(key, t);
+  return t;
 }
 
 // Very light sanity check — Resend rejects malformed addresses anyway.
@@ -104,15 +165,6 @@ If you'd prefer not to receive these emails, just reply and let us know.`;
   return { subject: SUBJECT, html, text };
 }
 
-// Internal team who get a heads-up when a lead goes interested (comma-separated
-// in EMAIL_NOTIFY, e.g. "naveed@gmail.com,rose@icloud.com").
-export function notifyRecipients(): string[] {
-  return (process.env.EMAIL_NOTIFY ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
 interface LeadNotification {
   name: string;
   businessName: string;
@@ -125,19 +177,20 @@ interface LeadNotification {
 }
 
 /**
- * Internal alert to the team (Naveed / Rosemarie) that a lead is interested.
- * Sent regardless of whether the lead has an email, so the team always sees new
- * warm leads. Never throws.
+ * Internal alert to the team that a lead is interested / a meeting is booked.
+ * Sender + recipients come from the campaign's email profile, so financing and
+ * NextGen alerts stay fully separate. Never throws.
  */
 export async function sendLeadNotification(
   n: LeadNotification,
+  profile: EmailProfile = emailProfile(),
 ): Promise<{ sent: boolean; reason?: string }> {
-  if (!isEmailConfigured()) return { sent: false, reason: "email not configured" };
-  const to = notifyRecipients();
-  if (to.length === 0) return { sent: false, reason: "no EMAIL_NOTIFY recipients" };
+  if (!isEmailConfigured(profile)) return { sent: false, reason: "email not configured" };
+  const to = profile.notify;
+  if (to.length === 0) return { sent: false, reason: "no notification recipients" };
 
-  const fromName = process.env.EMAIL_FROM_NAME || COMPANY_NAME;
-  const fromAddr = process.env.SMTP_USER!;
+  const fromName = profile.fromName;
+  const fromAddr = profile.user;
   const biz = n.businessName.trim() || "—";
   const subject = `New interested lead: ${n.name.trim() || "Unknown"}${
     n.businessName.trim() ? ` (${n.businessName.trim()})` : ""
@@ -175,7 +228,7 @@ export async function sendLeadNotification(
 </div>`;
 
   try {
-    await getTransport().sendMail({
+    await transportFor(profile).sendMail({
       from: `"${fromName}" <${fromAddr}>`,
       to,
       subject,
@@ -197,16 +250,14 @@ export async function sendBusinessProfileEmail(
   fields: { label: string; value: string }[],
   legalName: string,
 ): Promise<{ sent: boolean; reason?: string }> {
-  if (!isEmailConfigured()) return { sent: false, reason: "email not configured" };
-  const to = (process.env.BUSINESS_PROFILE_EMAIL ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const recipients = to.length ? to : notifyRecipients();
+  const profile = emailProfile("financing");
+  if (!isEmailConfigured(profile)) return { sent: false, reason: "email not configured" };
+  const to = list(process.env.BUSINESS_PROFILE_EMAIL);
+  const recipients = to.length ? to : profile.notify;
   if (recipients.length === 0) return { sent: false, reason: "no recipients configured" };
 
-  const fromName = process.env.EMAIL_FROM_NAME || COMPANY_NAME;
-  const fromAddr = process.env.SMTP_USER!;
+  const fromName = profile.fromName;
+  const fromAddr = profile.user;
   const subject = `Twilio business verification — ${legalName || "submission"}`;
 
   const text =
@@ -227,7 +278,7 @@ export async function sendBusinessProfileEmail(
 </div>`;
 
   try {
-    await getTransport().sendMail({ from: `"${fromName}" <${fromAddr}>`, to: recipients, subject, html, text });
+    await transportFor(profile).sendMail({ from: `"${fromName}" <${fromAddr}>`, to: recipients, subject, html, text });
     return { sent: true };
   } catch (err) {
     return { sent: false, reason: err instanceof Error ? err.message : String(err) };
@@ -249,17 +300,17 @@ interface MeetingLead {
  */
 export async function sendMeetingEmail(
   lead: MeetingLead,
+  profile: EmailProfile = emailProfile("ai_meeting"),
 ): Promise<{ sent: boolean; reason?: string }> {
-  if (!isEmailConfigured()) return { sent: false, reason: "email not configured" };
+  if (!isEmailConfigured(profile)) return { sent: false, reason: "email not configured" };
   if (!lead.email || !looksLikeEmail(lead.email)) {
     return { sent: false, reason: "no valid lead email" };
   }
 
   const first = lead.name.trim().split(/\s+/)[0] || "there";
   const bookingLink = process.env.BOOKING_LINK || "";
-  const fromAddr = process.env.SMTP_USER!;
-  const replyTo =
-    process.env.NEXTGEN_REPLY_TO || process.env.EMAIL_REPLY_TO || fromAddr;
+  const fromAddr = profile.user;
+  const replyTo = profile.replyTo;
 
   const intake = [
     "What does your business do (in a sentence)?",
@@ -297,8 +348,8 @@ NextGen AI`;
 </div>`;
 
   try {
-    await getTransport().sendMail({
-      from: `"NextGen AI" <${fromAddr}>`,
+    await transportFor(profile).sendMail({
+      from: `"${profile.fromName}" <${fromAddr}>`,
       to: lead.email,
       replyTo,
       subject: "Your NextGen AI call — a couple of quick things",
@@ -317,22 +368,23 @@ NextGen AI`;
  */
 export async function sendWelcomeEmail(
   lead: WelcomeLead,
+  profile: EmailProfile = emailProfile("financing"),
 ): Promise<{ sent: boolean; reason?: string }> {
-  if (!isEmailConfigured()) return { sent: false, reason: "email not configured" };
+  if (!isEmailConfigured(profile)) return { sent: false, reason: "email not configured" };
   if (!lead.email || !looksLikeEmail(lead.email)) {
     return { sent: false, reason: "no valid lead email" };
   }
 
   const { subject, html, text } = buildEmail(lead);
 
-  // Gmail rewrites the From to the authenticated user, so the address IS
-  // SMTP_USER; only the display name is customizable. Replies go to Rose.
-  const fromName = process.env.EMAIL_FROM_NAME || COMPANY_NAME;
-  const fromAddr = process.env.SMTP_USER!;
-  const replyTo = process.env.EMAIL_REPLY_TO || fromAddr;
+  // Gmail rewrites the From to the authenticated user, so the address IS the
+  // profile's SMTP user; only the display name is customizable.
+  const fromName = profile.fromName;
+  const fromAddr = profile.user;
+  const replyTo = profile.replyTo;
 
   try {
-    await getTransport().sendMail({
+    await transportFor(profile).sendMail({
       from: `"${fromName}" <${fromAddr}>`,
       to: lead.email,
       replyTo,

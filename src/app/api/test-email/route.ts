@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   sendWelcomeEmail,
   sendLeadNotification,
-  notifyRecipients,
+  emailProfile,
   isEmailConfigured,
 } from "@/lib/email";
 import { isSameOrigin, hasValidCronSecret, clientIp, apiError } from "@/lib/security";
@@ -41,26 +41,29 @@ export async function POST(request: Request) {
   if (!parsed.success) return apiError(400, "Invalid request");
   const { kind, toEmail, name, businessName } = parsed.data;
 
-  // Team-notification test → goes to the EMAIL_NOTIFY list, no lead address needed.
+  // Team-notification test → goes to the financing EMAIL_NOTIFY list.
   if (kind === "notify") {
-    const recipients = notifyRecipients();
-    if (recipients.length === 0) {
+    const profile = emailProfile("financing");
+    if (profile.notify.length === 0) {
       return apiError(400, "No EMAIL_NOTIFY recipients configured");
     }
-    const result = await sendLeadNotification({
-      name: name ?? "Alex Morgan (TEST)",
-      businessName: businessName ?? "Cedar Comfort HVAC",
-      phone: "+15551234567",
-      email: "alex@example.com",
-      outcome: "callback",
-      summary:
-        "This is a TEST of your interested-lead alert — no real lead. If you received this, EMAIL_NOTIFY is working.",
-      // Sample preferred time (~18h out) so you can see the callback-time row.
-      callbackAt: new Date(Date.now() + 18 * 3600 * 1000).toISOString(),
-      timezone: "America/Los_Angeles",
-    });
+    const result = await sendLeadNotification(
+      {
+        name: name ?? "Alex Morgan (TEST)",
+        businessName: businessName ?? "Cedar Comfort HVAC",
+        phone: "+15551234567",
+        email: "alex@example.com",
+        outcome: "callback",
+        summary:
+          "This is a TEST of your interested-lead alert — no real lead. If you received this, EMAIL_NOTIFY is working.",
+        // Sample preferred time (~18h out) so you can see the callback-time row.
+        callbackAt: new Date(Date.now() + 18 * 3600 * 1000).toISOString(),
+        timezone: "America/Los_Angeles",
+      },
+      profile,
+    );
     if (!result.sent) return apiError(502, result.reason ?? "Could not send");
-    return NextResponse.json({ ok: true, kind, sentTo: recipients });
+    return NextResponse.json({ ok: true, kind, sentTo: profile.notify });
   }
 
   // Welcome-email test → needs a destination address.
