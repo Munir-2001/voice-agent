@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { CallOutcomeBadge } from "@/components/status-badge";
 import { Stagger, StaggerItem } from "@/components/motion";
 import type { Call } from "@/lib/types";
-import { formatPhone, formatDuration, relativeTime, initials } from "@/lib/format";
+import { formatPhone, formatDuration, relativeTime, initials, formatShortTimeInTz } from "@/lib/format";
 
 const COLS =
   "grid grid-cols-[minmax(0,2.4fr)_minmax(0,3fr)_7rem_7rem_6rem] items-center gap-3 px-4";
@@ -60,7 +60,12 @@ export function CallLogTable({
                     <span className="block tnum">{formatDuration(c.durationSecs)}</span>
                   </span>
                   <span className="text-right font-mono text-[11px] tabular-nums text-muted-foreground">
-                    {relativeTime(c.startedAt)}
+                    <span className="block">{relativeTime(c.startedAt)}</span>
+                    {c.localTimezone && (
+                      <span className="block opacity-70">
+                        {formatShortTimeInTz(c.startedAt, c.localTimezone)} local
+                      </span>
+                    )}
                   </span>
                 </>
               );

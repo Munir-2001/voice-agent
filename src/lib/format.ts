@@ -70,6 +70,24 @@ export function formatDateTimeInTz(
   }
 }
 
+/** Just the time + zone abbreviation in a given IANA tz — e.g. "10:32 AM PDT". */
+export function formatShortTimeInTz(
+  iso: string | null | undefined,
+  timezone: string | null | undefined,
+): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleTimeString("en-US", {
+      timeZone: timezone || "America/New_York",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    });
+  } catch {
+    return "—";
+  }
+}
+
 export function initials(name: string): string {
   return name
     .split(" ")

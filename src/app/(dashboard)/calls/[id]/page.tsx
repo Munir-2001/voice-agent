@@ -8,6 +8,7 @@ import {
   Calendar,
   Hash,
   CalendarClock,
+  Globe,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -148,6 +149,11 @@ export default async function CallDetailPage({
               <Detail icon={<Calendar className="size-4" />} label="When">
                 {formatDateTime(call.startedAt)}
               </Detail>
+              {(call.localTimezone || lead?.timezone) && (
+                <Detail icon={<Globe className="size-4" />} label="Local time">
+                  {formatDateTimeInTz(call.startedAt, call.localTimezone || lead?.timezone)}
+                </Detail>
+              )}
               <Detail icon={<Clock className="size-4" />} label="Duration">
                 {formatDuration(call.durationSecs)}
               </Detail>

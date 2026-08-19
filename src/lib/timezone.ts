@@ -31,6 +31,35 @@ export function timezoneForAreaCode(code: string | null): string {
   return AREA_CODE_TZ[code] ?? DEFAULT_TZ;
 }
 
+// The distinct US IANA timezones we ever assign to leads (from area codes or a
+// stated location). Used to compute which zones are open right now.
+export const US_TIMEZONES = [
+  "America/New_York",
+  "America/Detroit",
+  "America/Chicago",
+  "America/Denver",
+  "America/Phoenix",
+  "America/Los_Angeles",
+  "America/Anchorage",
+  "Pacific/Honolulu",
+];
+
+/**
+ * The subset of US timezones whose LOCAL time is currently inside
+ * [startHour, endHour) on a weekday. The dialer queries leads in exactly these
+ * zones, so it always calls whoever is open right now (East Coast in the
+ * morning, West Coast later) instead of stalling on out-of-window leads.
+ */
+export function openTimezones(
+  startHour: number,
+  endHour: number,
+  now: Date,
+): string[] {
+  return US_TIMEZONES.filter((tz) =>
+    isWithinCallingWindow(tz, startHour, endHour, now),
+  );
+}
+
 /** True if `tz` is a real IANA timezone (so we never store LLM garbage). */
 export function isValidTimeZone(tz: string | null | undefined): boolean {
   if (!tz) return false;

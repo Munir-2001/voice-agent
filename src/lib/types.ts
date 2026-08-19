@@ -64,6 +64,7 @@ export interface Call {
   recordingUrl: string | null;
   numberUsed: string; // which Twilio number
   callbackAt?: string | null;
+  localTimezone?: string | null; // lead's IANA tz at call time (for local call time)
 }
 
 export interface TranscriptTurn {

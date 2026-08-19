@@ -59,6 +59,12 @@ export async function POST(request: Request) {
 
   const leadId = (dyn.lead_id ?? meta.lead_id) as string | undefined;
   const durationSecs = (meta.call_duration_secs as number) ?? 0;
+  // Prefer the ACTUAL call-start time from metadata (unix seconds) so the local
+  // time we display/audit is when the call really happened, not webhook receipt.
+  const startUnix = Number(meta.start_time_unix_secs);
+  const startedAtIso = Number.isFinite(startUnix) && startUnix > 0
+    ? new Date(startUnix * 1000).toISOString()
+    : new Date().toISOString();
   // Recordings arrive on a SEPARATE post_call_audio webhook — never in this one.
   const recordingUrl = (evt.recording_url ?? null) as string | null;
 
@@ -132,13 +138,16 @@ export async function POST(request: Request) {
     workspace_id: workspaceId,
     lead_id: leadId,
     elevenlabs_conversation_id: conversationId,
-    started_at: new Date().toISOString(),
+    started_at: startedAtIso,
     duration_secs: durationSecs,
     transcript,
     recording_url: recordingUrl,
     outcome,
     summary,
     number_used: numberUsed,
+    // The lead's local timezone at call time — lets the dashboard show the
+    // prospect's local call time so you can audit that it wasn't a night call.
+    local_timezone: (lead?.timezone as string) ?? null,
     // Store on the call too, so even a standalone test call (no lead) shows the
     // extracted callback time on the call detail page.
     callback_at: callbackAt,

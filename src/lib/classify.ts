@@ -46,7 +46,11 @@ Outcome rules:
 - "bad_number": wrong number, disconnected, or not the business.
 - "opted_out": asked to stop calling or be removed (this ALWAYS wins).
 - "needs_review": ambiguous/unusual — a human should check.
-Capture: meetingEmail = the email confirmed or newly given on the call (use the corrected one if they re-spelled it), else null. meetingCity = the city they said they're in, else null. industry = the industry they confirmed or that's clear from the company, else null.
+Capture (fill these whenever present, for ANY outcome — especially meeting_booked):
+- meetingEmail: the email confirmed or newly given (normalize spoken forms like "name at domain dot com" → name@domain.com; use the corrected one if re-spelled), else null.
+- meetingCity: the city, state, or region they said they're in (e.g. "Austin", "California"), else null.
+- callbackAt: the specific meeting/callback day+time they gave, resolved to ISO8601 with offset. SET THIS EVEN FOR "meeting_booked" whenever a time was mentioned (e.g. "tomorrow at 2pm") — not only for the "callback" outcome.
+- industry: the industry they confirmed or that's clear from the company, else null.
 Never invent a booked meeting that didn't happen.
 ${TIME_RULES}`;
 

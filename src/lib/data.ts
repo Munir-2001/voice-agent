@@ -73,6 +73,7 @@ function mapCall(r: Row): Call {
     recordingUrl: (r.recording_url as string) ?? null,
     numberUsed: (r.number_used as string) ?? "",
     callbackAt: (r.callback_at as string) ?? null,
+    localTimezone: (r.local_timezone as string) ?? null,
   };
 }
 

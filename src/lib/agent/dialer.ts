@@ -9,7 +9,7 @@ import "server-only";
 // active workspace independently via runAllActiveWorkspaces().
 
 import { createServiceClient } from "@/lib/supabase/server";
-import { isWithinCallingWindow } from "@/lib/timezone";
+import { isWithinCallingWindow, openTimezones } from "@/lib/timezone";
 import { placeOutboundCall, callerNumberIds } from "@/lib/agent/outbound";
 
 // TCPA legal calling hours (lead-local). The configured campaign window must stay
@@ -116,6 +116,15 @@ export async function runDialTick(
     }
   }
 
+  // Which US timezones are open RIGHT NOW (weekday + local hour in window).
+  // We query only these, so the dialer always reaches whoever is open (East
+  // Coast in the morning, West Coast later) instead of stalling on out-of-window
+  // leads that happen to be first by upload order.
+  const openTzs = openTimezones(startHour, endHour, now);
+  if (openTzs.length === 0) {
+    return { workspaceId, skipped: "outside calling window" };
+  }
+
   // Which statuses are re-dialable. The AI-meeting goal also retries voicemail
   // and gatekeeper (not_decision_maker) calls; financing keeps its original set.
   const retryable =
@@ -123,13 +132,15 @@ export async function runDialTick(
       ? ["pending", "callback", "no_answer", "voicemail", "not_decision_maker"]
       : ["pending", "callback", "no_answer"];
 
-  // Candidate leads not yet exhausted, in this workspace. Order by attempts first
-  // so EVERY lead gets a first call before anyone is retried, then upload order.
+  // Candidate leads not yet exhausted, in this workspace, whose local time is
+  // currently open. Order by attempts first so EVERY lead gets a first call
+  // before anyone is retried, then upload order.
   let candidatesQuery = supabase
     .from("leads")
     .select("*")
     .eq("workspace_id", workspaceId)
     .in("status", retryable)
+    .in("timezone", openTzs)
     .lt("attempts", settings.max_attempts);
 
   // AI-meeting: never retry a lead the SAME day — only first-touch (never called)
