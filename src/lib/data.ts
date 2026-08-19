@@ -322,26 +322,52 @@ export async function getLeadStatusCounts(): Promise<Record<string, number>> {
   return m;
 }
 
-export async function getInterestedLeads(): Promise<{ lead: Lead; call: Call | null }[]> {
-  const [leads, calls] = await Promise.all([getLeads(), getCalls(5000)]);
+// Fetch leads BY STATUS directly from the DB (scoped to the active workspace).
+// Critical: getLeads() only returns the newest 5000 by upload date, so in a
+// large workspace an older qualified lead would be missed — querying by status
+// returns the (small) set regardless of upload order or list size.
+async function leadsByStatus(statuses: LeadStatus[]): Promise<Lead[]> {
+  if (!isSupabaseConfigured()) {
+    return sampleLeads.filter((l) => statuses.includes(l.status));
+  }
+  const ws = await getActiveWorkspaceId();
+  const sb = createServiceClient();
+  const { data, error } = await sb
+    .from("leads")
+    .select("*")
+    .eq("workspace_id", ws)
+    .in("status", statuses)
+    .order("callback_at", { ascending: true });
+  if (error) {
+    console.error("leadsByStatus:", error.message);
+    return [];
+  }
+  return (data as Row[]).map(mapLead);
+}
+
+// Attach each lead's latest call for context (best-effort; null if not found).
+async function withLatestCall(
+  leads: Lead[],
+): Promise<{ lead: Lead; call: Call | null }[]> {
+  if (leads.length === 0) return [];
+  const calls = await getCalls(5000);
   const latestByLead = new Map<string, Call>();
   for (const c of calls) {
     if (!latestByLead.has(c.leadId)) latestByLead.set(c.leadId, c); // newest-first
   }
-  return leads.filter(isWaiting).map((lead) => ({ lead, call: latestByLead.get(lead.id) ?? null }));
+  return leads.map((lead) => ({ lead, call: latestByLead.get(lead.id) ?? null }));
+}
+
+export async function getInterestedLeads(): Promise<{ lead: Lead; call: Call | null }[]> {
+  const leads = (await leadsByStatus(["interested", "meeting_booked"])).filter(isWaiting);
+  return withLatestCall(leads);
 }
 
 // The separate Callbacks queue: leads that asked to be called back at a later
 // time, with their latest call for context.
 export async function getCallbackLeads(): Promise<{ lead: Lead; call: Call | null }[]> {
-  const [leads, calls] = await Promise.all([getLeads(), getCalls(5000)]);
-  const latestByLead = new Map<string, Call>();
-  for (const c of calls) {
-    if (!latestByLead.has(c.leadId)) latestByLead.set(c.leadId, c); // newest-first
-  }
-  return leads
-    .filter(isCallbackWaiting)
-    .map((lead) => ({ lead, call: latestByLead.get(lead.id) ?? null }));
+  const leads = (await leadsByStatus(["callback"])).filter(isCallbackWaiting);
+  return withLatestCall(leads);
 }
 
 // ── derived overview stats (pure) ───────────────────────────────────────────
