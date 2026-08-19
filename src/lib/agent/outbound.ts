@@ -42,6 +42,29 @@ export function callerNumberIds(): string[] {
   return [...new Set(merged)];
 }
 
+// Extract the US/NANP area code from an E.164 number: +1AAANXXXXXX → "AAA".
+// Returns null for anything that isn't a 10-digit US number.
+export function areaCodeOf(phoneE164: string): string | null {
+  const digits = (phoneE164 || "").replace(/\D/g, "");
+  const national =
+    digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+  return national.length === 10 ? national.slice(0, 3) : null;
+}
+
+// Local-presence map: area code → ElevenLabs phnum id. Parsed from
+// ELEVENLABS_PHONE_AREA_MAP="214:phnum_x,360:phnum_y". Lets the dialer call a
+// lead from a number in THEIR area code (much higher pickup) and fall back to
+// normal rotation when there's no match. Malformed entries are skipped.
+export function parseAreaMap(raw: string | undefined): Record<string, string> {
+  const map: Record<string, string> = {};
+  if (!raw) return map;
+  for (const pair of raw.split(",")) {
+    const [area, id] = pair.split(":").map((s) => s.trim());
+    if (/^\d{3}$/.test(area) && id) map[area] = id;
+  }
+  return map;
+}
+
 // Triggers an ElevenLabs outbound call. `agentPhoneNumberId` (phnum_…) sets the
 // caller ID — there is no separate from_number on this endpoint. Throws with the
 // response body on failure so setup problems are visible.

@@ -117,6 +117,41 @@ export default async function OverviewPage() {
         </FadeIn>
       </div>
 
+      {/* call-quality row — proves whether opener/audio fixes are working */}
+      {stats.answered > 0 && (
+        <FadeIn delay={0.08}>
+          <Card>
+            <CardHeader className="flex-row items-center justify-between">
+              <CardTitle className="text-base font-semibold">Call quality — last 35 days</CardTitle>
+              <span className="text-xs text-muted-foreground">of {stats.answered} answered calls</span>
+            </CardHeader>
+            <CardContent className="grid grid-cols-3 gap-4">
+              <div>
+                <p className="text-2xl font-semibold tnum">{stats.hangupRate}%</p>
+                <p className="text-sm text-muted-foreground">
+                  Early hang-ups
+                  <span className="block text-xs">dropped in &lt;20s ({stats.earlyHangups})</span>
+                </p>
+              </div>
+              <div>
+                <p className="text-2xl font-semibold tnum">{stats.avgTalkSecs}s</p>
+                <p className="text-sm text-muted-foreground">
+                  Avg talk time
+                  <span className="block text-xs">on answered calls</span>
+                </p>
+              </div>
+              <div>
+                <p className="text-2xl font-semibold tnum">{stats.answered}</p>
+                <p className="text-sm text-muted-foreground">
+                  Answered
+                  <span className="block text-xs">someone engaged (≥3s)</span>
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </FadeIn>
+      )}
+
       {/* analytics row (live) */}
       <div className="grid gap-4 lg:grid-cols-3">
         <FadeIn delay={0.1} className="lg:col-span-2">

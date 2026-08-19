@@ -315,6 +315,12 @@ export interface OverviewStats {
   connectRate: number; // %
   outcomeCounts: { status: LeadStatus; count: number }[];
   dailySeries: { day: string; dials: number; interested: number }[];
+  // Call-quality signals (help spot the "picked up then hung up in seconds"
+  // pattern and measure whether opener/audio changes are actually working).
+  answered: number; // calls where someone actually engaged (>= 3s)
+  earlyHangups: number; // answered but dropped in under 20s
+  hangupRate: number; // % of answered calls that dropped in under 20s
+  avgTalkSecs: number; // average duration of answered calls
 }
 
 const CONNECTED: CallOutcome[] = ["interested", "not_interested", "callback", "opted_out"];
@@ -373,6 +379,20 @@ export function computeStats(leads: Lead[], calls: Call[]): OverviewStats {
     });
   }
 
+  // Call quality: an "answered" call is one where someone engaged (>= 3s of
+  // audio), filtering out plain no-answers/rings. An "early hangup" is an
+  // answered call that dropped in under 20s — the exact failure we're seeing
+  // when the opener talks over people. Tracking this lets us prove the fix.
+  const ANSWERED_MIN = 3;
+  const HANGUP_MAX = 20;
+  const answeredCalls = calls.filter((c) => c.durationSecs >= ANSWERED_MIN);
+  const answered = answeredCalls.length;
+  const earlyHangups = answeredCalls.filter((c) => c.durationSecs < HANGUP_MAX).length;
+  const hangupRate = answered ? Math.round((earlyHangups / answered) * 100) : 0;
+  const avgTalkSecs = answered
+    ? Math.round(answeredCalls.reduce((s, c) => s + c.durationSecs, 0) / answered)
+    : 0;
+
   return {
     totalLeads: leads.length,
     dialsThisMonth,
@@ -383,5 +403,9 @@ export function computeStats(leads: Lead[], calls: Call[]): OverviewStats {
     connectRate,
     outcomeCounts,
     dailySeries,
+    answered,
+    earlyHangups,
+    hangupRate,
+    avgTalkSecs,
   };
 }

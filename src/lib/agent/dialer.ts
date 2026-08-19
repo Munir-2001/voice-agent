@@ -10,7 +10,12 @@ import "server-only";
 
 import { createServiceClient } from "@/lib/supabase/server";
 import { isWithinCallingWindow, openTimezones } from "@/lib/timezone";
-import { placeOutboundCall, callerNumberIds } from "@/lib/agent/outbound";
+import {
+  placeOutboundCall,
+  callerNumberIds,
+  areaCodeOf,
+  parseAreaMap,
+} from "@/lib/agent/outbound";
 
 // TCPA legal calling hours (lead-local). The configured campaign window must stay
 // inside this; a manual "Call now" is clamped to it so it can fire outside the
@@ -202,16 +207,23 @@ export async function runDialTick(
     return { workspaceId, skipped: "all remaining leads suppressed" };
   }
 
+  // Local-presence map (area code → phnum id). When a lead's area code matches,
+  // we call from a same-area number for a much higher pickup rate; otherwise we
+  // fall back to normal day-long rotation below.
+  const areaMap = parseAreaMap(process.env.ELEVENLABS_PHONE_AREA_MAP);
+
   const placed: string[] = [];
   const failed: { id: string; error: string }[] = [];
 
   for (let i = 0; i < eligible.length; i++) {
     const lead = eligible[i];
-    // Rotate caller ID across the WHOLE day, not just within this tick — offset
-    // by how many calls were already placed today so number A / B / A / B
+    // Prefer a caller ID in the lead's own area code (local presence). If none
+    // is configured for that area, rotate caller ID across the WHOLE day —
+    // offset by how many calls were already placed today so number A / B / A / B
     // alternate even when only 1 call is placed per tick.
+    const localId = areaMap[areaCodeOf(lead.phone) ?? ""];
     const agentPhoneNumberId =
-      phoneNumberIds[(placedToday + i) % phoneNumberIds.length];
+      localId ?? phoneNumberIds[(placedToday + i) % phoneNumberIds.length];
     try {
       await placeOutboundCall(
         lead,
