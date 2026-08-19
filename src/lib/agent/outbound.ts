@@ -54,6 +54,9 @@ export async function placeOutboundCall(
 
   const dynamic_variables: Record<string, string> = {
     name: lead.name,
+    // First name only, for a natural greeting ("is this Jordan?"). Falls back to
+    // the full name, then a friendly default if the name is blank.
+    first_name: lead.name.trim().split(/\s+/)[0] || lead.name || "there",
     business_name: lead.business_name,
     // `company` is an alias of business_name so prompts can use either {{company}}
     // or {{business_name}} (the NextGen AI prompt uses {{company}}).
