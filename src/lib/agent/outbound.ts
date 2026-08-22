@@ -91,6 +91,11 @@ export async function placeOutboundCall(
     // or {{business_name}} (the NextGen AI prompt uses {{company}}).
     company: lead.business_name,
     industry: lead.industry,
+    // A contact email the agent can leave with a gatekeeper who offers to pass a
+    // message to the owner (NextGen reply-to, else the shared one). Empty is fine
+    // — the prompt just skips reading it out.
+    callback_email:
+      process.env.NEXTGEN_REPLY_TO ?? process.env.EMAIL_REPLY_TO ?? "",
     // Value hook MUST match the campaign: the AI-meeting agent (Emma) gets an
     // automation hook, the financing agent gets the lending playbook line.
     // Sending the financing hook to Emma was the "walk-in cooler / Financing
