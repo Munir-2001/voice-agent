@@ -51,6 +51,27 @@ export function verifyWebhookSignature(rawBody: string, header: string | null): 
   return safeEqual(expected, v0.replace(/^v0=/, ""));
 }
 
+// ── Twilio inbound webhook signature (X-Twilio-Signature) ───────────────────
+// Twilio signs HMAC-SHA1 over the full request URL followed by each POST param
+// name+value sorted by name, base64-encoded, keyed by the account auth token.
+// Fails closed if TWILIO_AUTH_TOKEN isn't set.
+export function verifyTwilioSignature(
+  url: string,
+  params: Record<string, string>,
+  header: string | null,
+): boolean {
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  if (!token || !header) return false;
+  const data = Object.keys(params)
+    .sort()
+    .reduce((acc, key) => acc + key + params[key], url);
+  const expected = crypto
+    .createHmac("sha1", token)
+    .update(Buffer.from(data, "utf-8"))
+    .digest("base64");
+  return safeEqual(expected, header);
+}
+
 // ── Same-origin check for browser-initiated state-changing POSTs ────────────
 // Do NOT use on webhook/cron endpoints (external callers have no same origin).
 export function isSameOrigin(request: Request): boolean {

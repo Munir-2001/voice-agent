@@ -79,7 +79,7 @@ interface Provider {
   model: string;
 }
 
-function providers(): Provider[] {
+export function providers(): Provider[] {
   const out: Provider[] = [];
   if (process.env.GROQ_API_KEY) {
     out.push({

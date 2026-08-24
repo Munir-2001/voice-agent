@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // detail page (transcript + summary + recording). Auto-refreshes so new calls
 // land here on their own while the agent is dialing.
 export default async function CallLogPage() {
-  const calls = await getCalls(500);
+  const calls = await getCalls(1000);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">

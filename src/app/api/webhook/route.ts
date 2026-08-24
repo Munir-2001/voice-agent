@@ -146,6 +146,9 @@ export async function POST(request: Request) {
     outcome,
     summary,
     number_used: numberUsed,
+    // The other party's number (lead on outbound, caller on inbound) — powers
+    // the call-log phone search and makes callbacks identifiable.
+    external_number: toNumber ?? null,
     // The lead's local timezone at call time — lets the dashboard show the
     // prospect's local call time so you can audit that it wasn't a night call.
     local_timezone: (lead?.timezone as string) ?? null,

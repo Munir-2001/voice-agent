@@ -72,6 +72,10 @@ function mapCall(r: Row): Call {
     transcript: ((r.transcript as TranscriptTurn[]) ?? []),
     recordingUrl: (r.recording_url as string) ?? null,
     numberUsed: (r.number_used as string) ?? "",
+    // Prefer the number stored on the call (works for inbound too); fall back to
+    // the joined lead's phone for older rows saved before external_number existed.
+    contactNumber:
+      (r.external_number as string) || ((lead?.phone as string) ?? ""),
     callbackAt: (r.callback_at as string) ?? null,
     localTimezone: (r.local_timezone as string) ?? null,
   };
@@ -116,7 +120,7 @@ export async function getCalls(limit = 2000, sinceISO?: string): Promise<Call[]>
   const sb = createServiceClient();
   let q = sb
     .from("calls")
-    .select("*, leads(name, business_name)")
+    .select("*, leads(name, business_name, phone)")
     .eq("workspace_id", ws)
     .order("started_at", { ascending: false })
     .limit(limit);
@@ -137,7 +141,7 @@ export async function getCallById(id: string): Promise<Call | null> {
   const sb = createServiceClient();
   const { data, error } = await sb
     .from("calls")
-    .select("*, leads(name, business_name)")
+    .select("*, leads(name, business_name, phone)")
     .eq("id", id)
     .eq("workspace_id", ws)
     .maybeSingle();

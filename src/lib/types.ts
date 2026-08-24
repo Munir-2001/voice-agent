@@ -62,7 +62,10 @@ export interface Call {
   summary: string;
   transcript: TranscriptTurn[];
   recordingUrl: string | null;
-  numberUsed: string; // which Twilio number
+  numberUsed: string; // which Twilio number (our caller ID)
+  // The OTHER party's number — the lead we dialed, or the caller on an inbound
+  // call. Used for the call-log phone search and to identify callbacks.
+  contactNumber?: string;
   callbackAt?: string | null;
   localTimezone?: string | null; // lead's IANA tz at call time (for local call time)
 }
