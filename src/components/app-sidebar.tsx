@@ -13,6 +13,7 @@ import {
   PhoneCall,
   FlaskConical,
   Clock,
+  ListChecks,
 } from "lucide-react";
 import {
   Sidebar,
@@ -38,6 +39,7 @@ const NAV = [
   { title: "Interested", href: "/interested", icon: Sparkles },
   { title: "Callbacks", href: "/callbacks", icon: Clock },
   { title: "All leads", href: "/leads", icon: Users },
+  { title: "Lists", href: "/lists", icon: ListChecks },
   { title: "Upload", href: "/upload", icon: Upload },
 ];
 

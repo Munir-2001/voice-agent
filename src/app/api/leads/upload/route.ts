@@ -22,6 +22,9 @@ const STR = z.preprocess(
 );
 
 const Body = z.object({
+  // Optional target list — leads are tagged with it so the dialer can run a
+  // campaign on just this list. Omit/null to upload without a list.
+  listId: z.number().int().positive().nullable().optional(),
   rows: z
     .array(
       z.object({
@@ -67,6 +70,19 @@ export async function POST(request: Request) {
   const workspaceId = await getActiveWorkspaceId();
   const supabase = createServiceClient();
 
+  // If a target list was given, verify it belongs to this workspace before we
+  // tag any leads with it (never let an upload write into another workspace).
+  let listId: number | null = parsed.data.listId ?? null;
+  if (listId !== null) {
+    const { data: list } = await supabase
+      .from("lead_lists")
+      .select("id")
+      .eq("id", listId)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+    if (!list) listId = null; // unknown list → upload without one rather than fail
+  }
+
   // Load THIS workspace's suppression list so opted-out numbers never get re-added.
   const { data: suppressed } = await supabase
     .from("suppression")
@@ -97,6 +113,7 @@ export async function POST(request: Request) {
     seen.add(e164);
     clean.push({
       workspace_id: workspaceId,
+      list_id: listId,
       name: cleanName(row.name),
       business_name: cleanName(row.business_name),
       phone: e164,

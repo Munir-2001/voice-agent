@@ -8,7 +8,7 @@ import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getActiveWorkspaceId } from "@/lib/workspace";
-import type { Lead, Call, CampaignSettings, LeadStatus, CallOutcome, TranscriptTurn } from "@/lib/types";
+import type { Lead, Call, CampaignSettings, LeadList, LeadStatus, CallOutcome, TranscriptTurn } from "@/lib/types";
 import {
   leads as sampleLeads,
   calls as sampleCalls,
@@ -24,6 +24,7 @@ const BUSINESS_TZ = "America/New_York";
 const SAFE_SETTINGS: CampaignSettings = {
   name: "Campaign",
   active: false,
+  activeListId: null,
   windowStart: "09:00",
   windowEnd: "18:00",
   callsPerTick: 3,
@@ -91,6 +92,7 @@ function mapSettings(r: Row): CampaignSettings {
     dailyCap: (r.daily_cap as number) ?? 30,
     maxAttempts: (r.max_attempts as number) ?? 2,
     numbers: (r.numbers as string[]) ?? [],
+    activeListId: (r.active_list_id as number) ?? null,
   };
 }
 
@@ -239,6 +241,54 @@ export async function getCallbackCount(): Promise<number> {
     return count ?? 0;
   }
   return (data as Row[]).filter((r) => !r.contacted_at).length;
+}
+
+// All lead lists in the active workspace, with per-list counts and which one is
+// active (the list the dialer is currently calling).
+export async function getLeadLists(): Promise<LeadList[]> {
+  if (!isSupabaseConfigured()) return [];
+  const ws = await getActiveWorkspaceId();
+  const sb = createServiceClient();
+  const [listsRes, settingsRes] = await Promise.all([
+    sb.from("lead_lists").select("id, name, created_at").eq("workspace_id", ws).order("created_at", { ascending: false }),
+    sb.from("campaign_settings").select("active_list_id").eq("workspace_id", ws).maybeSingle(),
+  ]);
+  const activeId = (settingsRes.data?.active_list_id as number) ?? null;
+  const lists = (listsRes.data ?? []) as Row[];
+
+  // Per-list counts (few lists per workspace, so a couple of head counts each is
+  // cheap and always accurate regardless of list size).
+  const out: LeadList[] = [];
+  for (const l of lists) {
+    const id = l.id as number;
+    const [totalRes, pendingRes] = await Promise.all([
+      sb.from("leads").select("*", { count: "exact", head: true }).eq("workspace_id", ws).eq("list_id", id),
+      sb.from("leads").select("*", { count: "exact", head: true }).eq("workspace_id", ws).eq("list_id", id).eq("status", "pending"),
+    ]);
+    out.push({
+      id,
+      name: (l.name as string) ?? "Untitled list",
+      createdAt: (l.created_at as string) ?? "",
+      total: totalRes.count ?? 0,
+      pending: pendingRes.count ?? 0,
+      active: activeId === id,
+    });
+  }
+  return out;
+}
+
+// Validate a list id belongs to the active workspace (used by mutations/upload).
+export async function listBelongsToActiveWorkspace(listId: number): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  const ws = await getActiveWorkspaceId();
+  const sb = createServiceClient();
+  const { data } = await sb
+    .from("lead_lists")
+    .select("id")
+    .eq("id", listId)
+    .eq("workspace_id", ws)
+    .maybeSingle();
+  return Boolean(data);
 }
 
 export interface LeadsPage {

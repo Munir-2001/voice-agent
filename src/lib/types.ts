@@ -85,6 +85,18 @@ export interface CampaignSettings {
   dailyCap: number;
   maxAttempts: number;
   numbers: string[];
+  activeListId: number | null; // which lead list the dialer calls (null = all)
+}
+
+// A named lead list within a workspace. The dialer calls the workspace's active
+// list; uploads can target a specific list.
+export interface LeadList {
+  id: number;
+  name: string;
+  createdAt: string;
+  total: number; // leads in this list
+  pending: number; // leads still to be called (status 'pending')
+  active: boolean; // is this the workspace's active list?
 }
 
 export interface Suppression {

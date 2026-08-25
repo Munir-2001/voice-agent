@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
@@ -74,6 +74,12 @@ function mapRow(row: Record<string, unknown>): LeadRow {
   };
 }
 
+interface ListLite {
+  id: number;
+  name: string;
+  total: number;
+}
+
 export function UploadDropzone() {
   const [drag, setDrag] = useState(false);
   const [parsed, setParsed] = useState<Parsed | null>(null);
@@ -82,6 +88,45 @@ export function UploadDropzone() {
   const [imported, setImported] = useState<ImportResult | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Lead lists: the upload is tagged with the chosen list so you can run a
+  // campaign on just that list. "" = no list (uploads into the general pool).
+  const [lists, setLists] = useState<ListLite[]>([]);
+  const [listId, setListId] = useState<string>("");
+  const [newName, setNewName] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/lists")
+      .then((r) => (r.ok ? r.json() : { lists: [] }))
+      .then((d) => setLists(d.lists ?? []))
+      .catch(() => {});
+  }, []);
+
+  async function createList() {
+    const name = newName.trim();
+    if (!name) return;
+    setCreating(true);
+    try {
+      const res = await fetch("/api/lists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error ?? "Could not create list");
+        return;
+      }
+      const created = { id: data.list.id as number, name: data.list.name as string, total: 0 };
+      setLists((prev) => [created, ...prev]);
+      setListId(String(created.id));
+      setNewName("");
+      toast.success(`List “${created.name}” created`);
+    } finally {
+      setCreating(false);
+    }
+  }
 
   // Shared: turn raw rows (from CSV or Excel) into validated leads + preview.
   function processRows(raw: Record<string, unknown>[], fileName: string) {
@@ -170,7 +215,10 @@ export function UploadDropzone() {
         const res = await fetch("/api/leads/upload", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rows: chunk }),
+          body: JSON.stringify({
+            rows: chunk,
+            listId: listId ? Number(listId) : null,
+          }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -211,6 +259,45 @@ export function UploadDropzone() {
 
   return (
     <div className="space-y-6">
+      {/* Target list — tag this upload so you can run a campaign on just it */}
+      <Card className="gap-0 p-4">
+        <label className="text-sm font-medium">Upload into list</label>
+        <p className="mb-3 mt-0.5 text-xs text-muted-foreground">
+          Tag these leads with a list, then activate that list on the Lists page to
+          call it. Leave as “No list” to add to the general pool.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={listId}
+            onChange={(e) => setListId(e.target.value)}
+            className="h-9 rounded-lg border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="">No list (general pool)</option>
+            {lists.map((l) => (
+              <option key={l.id} value={String(l.id)}>
+                {l.name} ({l.total})
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-muted-foreground">or</span>
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                createList();
+              }
+            }}
+            placeholder="New list name…"
+            className="h-9 min-w-[10rem] flex-1 rounded-lg border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          <Button size="sm" variant="outline" disabled={!newName.trim() || creating} onClick={createList}>
+            {creating ? <Loader2 className="size-4 animate-spin" /> : "Create"}
+          </Button>
+        </div>
+      </Card>
+
       <div
         onDragOver={(e) => {
           e.preventDefault();
