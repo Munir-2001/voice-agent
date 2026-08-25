@@ -49,6 +49,8 @@ export interface Lead {
   website?: string | null;
   meetingEmail?: string | null; // email confirmed on the call (may differ from email)
   meetingCity?: string | null; // city stated on the call
+  // Deep link to the exact ElevenLabs conversation from the latest call.
+  conversationUrl?: string | null;
 }
 
 export interface Call {

@@ -1,8 +1,7 @@
 import { Clock } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card } from "@/components/ui/card";
-import { Stagger, StaggerItem } from "@/components/motion";
-import { InterestedCard } from "@/components/interested-card";
+import { QueueList } from "@/components/queue-list";
 import { getCallbackLeads } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -29,13 +28,7 @@ export default async function CallbacksPage() {
           </p>
         </Card>
       ) : (
-        <Stagger className="grid gap-4 md:grid-cols-2">
-          {items.map(({ lead, call }) => (
-            <StaggerItem key={lead.id}>
-              <InterestedCard lead={lead} call={call} />
-            </StaggerItem>
-          ))}
-        </Stagger>
+        <QueueList items={items} />
       )}
     </div>
   );

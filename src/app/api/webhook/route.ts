@@ -58,6 +58,16 @@ export async function POST(request: Request) {
     payload.conversation_id) as string | undefined;
   if (!conversationId) return apiError(400, "Invalid payload");
 
+  // Deep link to the exact conversation in the ElevenLabs dashboard, so the
+  // Interested queue can jump straight to the recording/transcript. Built from
+  // the agent id + conversation id; falls back to the by-id conversation route.
+  const agentId = (evt.agent_id ?? meta.agent_id ?? init.agent_id) as
+    | string
+    | undefined;
+  const conversationUrl = agentId
+    ? `https://elevenlabs.io/app/agents/agents/${agentId}/history/${conversationId}`
+    : `https://elevenlabs.io/app/conversations/${conversationId}`;
+
   const leadId = (dyn.lead_id ?? meta.lead_id) as string | undefined;
   const durationSecs = (meta.call_duration_secs as number) ?? 0;
   // Prefer the ACTUAL call-start time from metadata (unix seconds) so the local
@@ -158,7 +168,12 @@ export async function POST(request: Request) {
   });
 
   if (leadId) {
-    const patch: Record<string, unknown> = { status: outcome };
+    // Always record the link to this call's conversation on the lead, so every
+    // interested/callback lead points at the exact call that qualified it.
+    const patch: Record<string, unknown> = {
+      status: outcome,
+      conversation_url: conversationUrl,
+    };
     if (outcome === "opted_out" && toNumber) {
       // Per-workspace opt-out: suppress the number only for this workspace.
       await supabase

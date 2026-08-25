@@ -56,6 +56,7 @@ function mapLead(r: Row): Lead {
     website: (r.website as string) ?? null,
     meetingEmail: (r.meeting_email as string) ?? null,
     meetingCity: (r.meeting_city as string) ?? null,
+    conversationUrl: (r.conversation_url as string) ?? null,
   };
 }
 

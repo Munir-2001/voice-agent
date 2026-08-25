@@ -3,6 +3,7 @@ import { Phone, FileText, Building2, CalendarClock, Check, Mail, MapPin } from "
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { MarkContactedButton } from "@/components/mark-contacted";
+import { ConversationLink } from "@/components/conversation-link";
 import { LeadStatusBadge } from "@/components/status-badge";
 import type { Lead, Call } from "@/lib/types";
 import { formatPhone, relativeTime, initials, formatDateTimeInTz } from "@/lib/format";
@@ -87,6 +88,9 @@ export function InterestedCard({
           </p>
         </div>
         <div className="flex items-center gap-1.5">
+          {!preview && lead.conversationUrl && (
+            <ConversationLink url={lead.conversationUrl} />
+          )}
           {call &&
             (preview ? (
               <Button variant="ghost" size="sm" disabled className="gap-1.5 text-muted-foreground">
