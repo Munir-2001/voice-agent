@@ -44,7 +44,14 @@ For callbackAt: resolve any relative time the prospect gives ("tomorrow at 2pm",
 
 const FINANCING_PROMPT = `You classify a completed outbound sales call transcript for a business-financing campaign.
 Return STRICT JSON: {"outcome": one of ["interested","not_interested","callback","voicemail","no_answer","opted_out"], "summary": "2 sentences max", "callbackAt": ISO8601 or null, "timezone": IANA timezone string or null}.
-Rules: if the prospect asked to be removed or to stop calling, outcome MUST be "opted_out". If they asked to be called at a specific time, outcome is "callback" and set callbackAt. Never invent interest that isn't there.
+Outcome rules (pick the FIRST that TRULY fits):
+- "opted_out": asked to be removed or to stop calling (ALWAYS wins).
+- "voicemail": reached a recorded greeting / answering machine.
+- "callback": a LIVE person asked to be called at a specific later time — set callbackAt.
+- "interested": the prospect clearly expressed GENUINE interest in financing AFTER understanding the offer — e.g. asked about rates/amounts/how it works, said they'd like to learn more, or agreed to a next step. CRITICAL: simply answering the phone, or saying "yes", "yeah?", "hello", "who is this?", or any bare acknowledgement is NOT interest. If the agent barely spoke and the prospect never actually engaged with the financing offer, it is NOT "interested".
+- "not_interested": the prospect declined, said they're not interested, or brushed the call off.
+- "no_answer": no meaningful conversation about financing happened — only a greeting or confusion ("who's this?"), silence, or the call ended before any real exchange.
+When a call was too short or too ambiguous to establish real interest, choose "no_answer" or "not_interested" — NEVER default to "interested". Never invent interest that isn't there.
 ${TIME_RULES}`;
 
 const MEETING_PROMPT = `You classify a completed outbound call transcript for NextGen AI. The call's goal was to book a FREE exploratory AI-consulting meeting and capture the prospect's email + preferred time.
@@ -56,7 +63,7 @@ Outcome rules (evaluate in this priority order; pick the FIRST that fits):
 - "bad_number": wrong number, disconnected, or not the business.
 - "meeting_booked": the DECISION-MAKER agreed to the meeting AND gave or confirmed an email (a time is a plus).
 - "callback": a LIVE person explicitly asked to be contacted at a specific later time — set callbackAt. This requires a genuine two-way exchange, never a recorded greeting.
-- "interested": the DECISION-MAKER THEMSELVES was genuinely warm about the idea and open to a meeting but did NOT commit to one or give a time. Do NOT mark "interested" just because the call was polite, or because a gatekeeper/receptionist engaged — interest must come from the actual prospect.
+- "interested": the DECISION-MAKER THEMSELVES was genuinely warm about the idea and open to a meeting but did NOT commit to one or give a time. Do NOT mark "interested" just because the call was polite, a gatekeeper engaged, or the prospect simply answered the phone. A bare "yes", "yeah?", "hello", or "who is this?" is NOT interest — interest must be a clear positive reaction to the actual offer.
 - "not_interested": the decision-maker declined.
 - "no_answer": no meaningful conversation happened (silence, immediate hang-up).
 - "needs_review": genuinely ambiguous/unusual — a human should check.

@@ -69,6 +69,19 @@ export async function runDialTick(
   // Scheduled ticks respect the pause switch; a manual dial overrides it.
   if (!settings.active && !manual) return { workspaceId, skipped: "campaign paused" };
 
+  // Agent isolation guard. placeOutboundCall falls back to the env agent
+  // (ELEVENLABS_AGENT_ID = the financing/Rose agent) when a workspace has no
+  // elevenlabs_agent_id of its own. That's fine for the financing campaign, but
+  // an ai_meeting workspace (admin/NextGen) MUST use its OWN agent — otherwise
+  // its calls would answer as Rose's agent. Refuse to dial rather than cross-wire.
+  if (settings.goal_type === "ai_meeting" && !settings.elevenlabs_agent_id) {
+    console.error(
+      `dial-tick[ws ${workspaceId}]: ai_meeting campaign has no elevenlabs_agent_id — ` +
+        `refusing to dial with the shared env agent (would answer as Rose's agent).`,
+    );
+    return { workspaceId, skipped: "no agent configured for this campaign" };
+  }
+
   // Effective window: the configured business hours for scheduled ticks, or the
   // full legal band for a manual dial (so "Call now" works outside the window
   // but still never dials before 8am / after 9pm local).
