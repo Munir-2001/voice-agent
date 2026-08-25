@@ -148,6 +148,11 @@ export async function runDialTick(
     .in("timezone", openTzs)
     .lt("attempts", settings.max_attempts);
 
+  // Run the campaign on ONLY the active list, when one is set (null = all leads).
+  if (settings.active_list_id != null) {
+    candidatesQuery = candidatesQuery.eq("list_id", settings.active_list_id);
+  }
+
   // AI-meeting: never retry a lead the SAME day — only first-touch (never called)
   // or leads last called before today are eligible.
   if (settings.goal_type === "ai_meeting") {
