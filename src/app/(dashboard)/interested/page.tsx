@@ -1,7 +1,7 @@
 import { Sparkles } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card } from "@/components/ui/card";
-import { QueueList } from "@/components/queue-list";
+import { InterestedTable } from "@/components/interested-table";
 import { getInterestedLeads } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +28,7 @@ export default async function InterestedPage() {
           </p>
         </Card>
       ) : (
-        <QueueList items={items} />
+        <InterestedTable items={items} />
       )}
     </div>
   );
