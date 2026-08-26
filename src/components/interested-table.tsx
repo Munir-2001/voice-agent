@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Search, X, ExternalLink } from "lucide-react";
+import Link from "next/link";
+import { Search, X, ExternalLink, FileText } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LeadStatusBadge } from "@/components/status-badge";
 import { MarkContactedButton } from "@/components/mark-contacted";
@@ -13,7 +14,7 @@ type Item = { lead: Lead; call: Call | null };
 const digits = (s?: string | null) => (s ?? "").replace(/\D/g, "");
 
 const COLS =
-  "grid grid-cols-[minmax(0,1.6fr)_9rem_8rem_minmax(0,1.4fr)_minmax(0,1.6fr)_8.5rem] items-center gap-3 px-4";
+  "grid grid-cols-[minmax(0,2.4fr)_8.5rem_7.5rem_minmax(0,1.3fr)_minmax(0,1.3fr)_8.5rem] items-start gap-3 px-4";
 
 // Data-table view of warm leads (Interested / Callbacks). One row per lead with
 // the conversation link as a plain, copyable, clickable column value — no card
@@ -77,16 +78,31 @@ export function InterestedTable({ items }: { items: Item[] }) {
                 No leads match “{query}”.
               </div>
             ) : (
-              filtered.map(({ lead }) => (
+              filtered.map(({ lead, call }) => (
                 <div key={lead.id} className={`${COLS} border-b py-3 last:border-0`}>
-                  {/* Lead */}
+                  {/* Lead + call summary; name links to the full transcript/detail */}
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium">
-                      {lead.name?.trim() || "Unknown"}
-                    </span>
+                    {call ? (
+                      <Link
+                        href={`/calls/${call.id}`}
+                        className="flex items-center gap-1 truncate text-sm font-medium hover:text-primary hover:underline"
+                      >
+                        <span className="truncate">{lead.name?.trim() || "Unknown"}</span>
+                        <FileText className="size-3 shrink-0 opacity-50" />
+                      </Link>
+                    ) : (
+                      <span className="block truncate text-sm font-medium">
+                        {lead.name?.trim() || "Unknown"}
+                      </span>
+                    )}
                     <span className="block truncate text-xs text-muted-foreground">
                       {lead.businessName || lead.meetingEmail || lead.email || "—"}
                     </span>
+                    {call?.summary && (
+                      <span className="mt-1 line-clamp-2 text-xs leading-snug text-muted-foreground/85">
+                        “{call.summary}”
+                      </span>
+                    )}
                   </span>
 
                   {/* Phone */}
