@@ -42,6 +42,22 @@ export function callerNumberIds(): string[] {
   return [...new Set(merged)];
 }
 
+// Area codes we should NEVER dial for cold outreach:
+//   • Toll-free (800/888/877/866/855/844/833/822) — company IVRs/switchboards,
+//     not a decision-maker's line, and often unroutable for outbound.
+//   • US territories / Caribbean NANP that Twilio blocks under geo-permissions
+//     (Puerto Rico 787/939, USVI 340, Guam 671, CNMI 670, Samoa 684) — these
+//     hard-fail with "Account not authorized to call".
+const UNCALLABLE_AREA_CODES = new Set([
+  "800", "888", "877", "866", "855", "844", "833", "822",
+  "787", "939", "340", "671", "670", "684",
+]);
+
+export function isUncallableUsNumber(phoneE164: string): boolean {
+  const ac = areaCodeOf(phoneE164);
+  return ac != null && UNCALLABLE_AREA_CODES.has(ac);
+}
+
 // Extract the US/NANP area code from an E.164 number: +1AAANXXXXXX → "AAA".
 // Returns null for anything that isn't a 10-digit US number.
 export function areaCodeOf(phoneE164: string): string | null {

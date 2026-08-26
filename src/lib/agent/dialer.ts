@@ -15,6 +15,7 @@ import {
   callerNumberIds,
   areaCodeOf,
   parseAreaMap,
+  isUncallableUsNumber,
 } from "@/lib/agent/outbound";
 
 // TCPA legal calling hours (lead-local). The configured campaign window must stay
@@ -179,9 +180,22 @@ export async function runDialTick(
     .order("created_at", { ascending: true })
     .limit(50);
 
-  const inWindow = ((candidates ?? []) as LeadRow[]).filter((l) =>
-    isWithinCallingWindow(l.timezone, startHour, endHour, now),
-  );
+  // Retire un-callable numbers (toll-free + US-territory/geo-blocked area codes)
+  // up front: mark them bad_number so they never burn a call slot or loop. This
+  // is what stops a dirty list of 800/888/PR numbers from starving real leads.
+  const junk = ((candidates ?? []) as LeadRow[]).filter((l) => isUncallableUsNumber(l.phone));
+  if (junk.length > 0) {
+    await supabase
+      .from("leads")
+      .update({ status: "bad_number" })
+      .in("id", junk.map((l) => l.id))
+      .eq("workspace_id", workspaceId);
+    console.log(`dial-tick[ws ${workspaceId}]: retired ${junk.length} un-callable numbers (toll-free/territory).`);
+  }
+
+  const inWindow = ((candidates ?? []) as LeadRow[])
+    .filter((l) => !isUncallableUsNumber(l.phone))
+    .filter((l) => isWithinCallingWindow(l.timezone, startHour, endHour, now));
 
   // Suppression gate (TCPA), per-workspace: never dial a number on THIS
   // workspace's opt-out/DNC list, even if the lead row still looks eligible.
@@ -260,11 +274,29 @@ export async function runDialTick(
         .eq("workspace_id", workspaceId);
       placed.push(lead.id);
     } catch (err) {
-      // Leave the lead as-is so it stays eligible next tick, but never swallow the
-      // reason — a silent catch here hides bad keys/IDs during setup.
       const message = err instanceof Error ? err.message : String(err);
       console.error(`dial-tick: call failed for lead ${lead.id}:`, message);
       failed.push({ id: lead.id, error: message });
+
+      // CRITICAL: do NOT leave the lead untouched, or a permanently-failing
+      // number (e.g. a Twilio geo-permission block on Puerto Rico / territory
+      // area codes, or an invalid number) gets re-tried EVERY tick forever,
+      // flooding ElevenLabs with 0-second errored conversations.
+      //   • Permanent provider rejections  → mark bad_number (terminal, never retried).
+      //   • Anything else (transient)       → count the attempt so it's bounded by max_attempts.
+      const permanent =
+        /not authorized to call|geo[\s-]?permissions?|not a valid phone number|invalid ['"]?to['"]?|unverified/i.test(
+          message,
+        );
+      await supabase
+        .from("leads")
+        .update(
+          permanent
+            ? { status: "bad_number", last_called_at: now.toISOString() }
+            : { attempts: lead.attempts + 1, last_called_at: now.toISOString() },
+        )
+        .eq("id", lead.id)
+        .eq("workspace_id", workspaceId);
     }
   }
 
