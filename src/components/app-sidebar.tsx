@@ -13,6 +13,7 @@ import {
   PhoneCall,
   FlaskConical,
   Clock,
+  History,
   ListChecks,
 } from "lucide-react";
 import {
@@ -37,6 +38,7 @@ const NAV = [
   { title: "Overview", href: "/overview", icon: LayoutDashboard },
   { title: "Call log", href: "/calls", icon: PhoneCall },
   { title: "Interested", href: "/interested", icon: Sparkles },
+  { title: "Interested history", href: "/interested/history", icon: History },
   { title: "Callbacks", href: "/callbacks", icon: Clock },
   { title: "All leads", href: "/leads", icon: Users },
   { title: "Lists", href: "/lists", icon: ListChecks },
@@ -68,8 +70,16 @@ export function AppSidebar({
   const activeWorkspaceName =
     workspaces.find((w) => w.id === activeWorkspaceId)?.name ?? "Workspace";
   const pathname = usePathname();
-  const isActive = (href: string) =>
-    pathname === href || pathname.startsWith(href + "/");
+  // Highlight only the MOST specific matching nav item, so a nested route like
+  // /interested/history lights up "Interested history" without also lighting its
+  // parent "Interested".
+  const allHrefs = [...NAV, ...MANAGE].map((i) => i.href);
+  const isActive = (href: string) => {
+    const best = allHrefs
+      .filter((h) => pathname === h || pathname.startsWith(h + "/"))
+      .sort((a, b) => b.length - a.length)[0];
+    return best === href;
+  };
   // Interested and Callbacks each carry a badge when leads are waiting.
   const badgeFor = (href: string) => {
     if (href === "/interested" && interestedCount > 0) return String(interestedCount);

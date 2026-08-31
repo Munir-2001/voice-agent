@@ -418,6 +418,15 @@ export async function getInterestedLeads(): Promise<{ lead: Lead; call: Call | n
   return withLatestCall(leads);
 }
 
+// History of every lead that was ever interested/booked and has since been
+// marked contacted — the inverse of getInterestedLeads(). Newest contact first.
+export async function getInterestedHistory(): Promise<{ lead: Lead; call: Call | null }[]> {
+  const leads = (await leadsByStatus(["interested", "meeting_booked", "callback"]))
+    .filter((l) => l.contactedAt)
+    .sort((a, b) => (b.contactedAt ?? "").localeCompare(a.contactedAt ?? ""));
+  return withLatestCall(leads);
+}
+
 // The separate Callbacks queue: leads that asked to be called back at a later
 // time, with their latest call for context.
 export async function getCallbackLeads(): Promise<{ lead: Lead; call: Call | null }[]> {

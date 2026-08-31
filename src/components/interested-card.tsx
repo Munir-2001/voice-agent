@@ -77,7 +77,7 @@ export function InterestedCard({
         <div>
           <a
             href={`tel:${lead.phone}`}
-            className="flex items-center gap-2 font-mono text-base font-medium tracking-tight hover:text-success"
+            className="num-mask flex items-center gap-2 font-mono text-base font-medium tracking-tight hover:text-success"
           >
             <Phone className="size-4 text-success" />
             {formatPhone(lead.phone)}

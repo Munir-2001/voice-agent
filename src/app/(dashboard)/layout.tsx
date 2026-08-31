@@ -4,6 +4,7 @@ import { CampaignControl } from "@/components/campaign-control";
 import { DialNowButton } from "@/components/dial-now-button";
 import { CampaignProvider } from "@/components/campaign-context";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { NumberBlurToggle } from "@/components/number-blur-toggle";
 import { Separator } from "@/components/ui/separator";
 import { getCampaignSettings, getInterestedCount, getCallbackCount } from "@/lib/data";
 import { getSessionUser } from "@/lib/auth";
@@ -45,6 +46,7 @@ export default async function DashboardLayout({
             <div className="ml-auto flex items-center gap-2">
               <DialNowButton />
               <CampaignControl />
+              <NumberBlurToggle />
               <ThemeToggle />
             </div>
           </header>

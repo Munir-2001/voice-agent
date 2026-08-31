@@ -19,7 +19,13 @@ const COLS =
 // Data-table view of warm leads (Interested / Callbacks). One row per lead with
 // the conversation link as a plain, copyable, clickable column value — no card
 // buttons. Searchable by name/business/email/phone/link.
-export function InterestedTable({ items }: { items: Item[] }) {
+export function InterestedTable({
+  items,
+  history = false,
+}: {
+  items: Item[];
+  history?: boolean;
+}) {
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
@@ -70,7 +76,7 @@ export function InterestedTable({ items }: { items: Item[] }) {
               <span>Status</span>
               <span>Callback</span>
               <span>Conversation</span>
-              <span className="text-right">Action</span>
+              <span className="text-right">{history ? "Contacted" : "Action"}</span>
             </div>
 
             {filtered.length === 0 ? (
@@ -106,7 +112,7 @@ export function InterestedTable({ items }: { items: Item[] }) {
                   </span>
 
                   {/* Phone */}
-                  <a href={`tel:${lead.phone}`} className="font-mono text-xs hover:text-success">
+                  <a href={`tel:${lead.phone}`} className="num-mask font-mono text-xs hover:text-success">
                     {formatPhone(lead.phone)}
                   </a>
 
@@ -138,9 +144,15 @@ export function InterestedTable({ items }: { items: Item[] }) {
                     )}
                   </span>
 
-                  {/* Action */}
+                  {/* Action, or (in history) when they were marked contacted */}
                   <span className="flex justify-end">
-                    <MarkContactedButton leadId={lead.id} name={lead.name.trim() || "this lead"} />
+                    {history ? (
+                      <span className="text-right text-xs text-muted-foreground">
+                        {lead.contactedAt ? relativeTime(lead.contactedAt) : "—"}
+                      </span>
+                    ) : (
+                      <MarkContactedButton leadId={lead.id} name={lead.name.trim() || "this lead"} />
+                    )}
                   </span>
                 </div>
               ))

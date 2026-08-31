@@ -118,7 +118,7 @@ export function CallLogTable({
                         <CallOutcomeBadge outcome={c.outcome} />
                       </span>
                       <span className="min-w-0 text-xs text-muted-foreground">
-                        <span className="block truncate font-mono">
+                        <span className="num-mask block truncate font-mono">
                           {c.contactNumber ? formatPhone(c.contactNumber) : "—"}
                         </span>
                         <span className="block tnum">{formatDuration(c.durationSecs)}</span>

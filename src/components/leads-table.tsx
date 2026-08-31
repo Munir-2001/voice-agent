@@ -172,7 +172,7 @@ export function LeadsTable({
                       <div className="text-xs text-muted-foreground">{lead.businessName}</div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{lead.industry}</TableCell>
-                    <TableCell className="font-mono text-sm">{formatPhone(lead.phone)}</TableCell>
+                    <TableCell className="num-mask font-mono text-sm">{formatPhone(lead.phone)}</TableCell>
                     <TableCell>
                       <LeadStatusBadge status={lead.status} />
                     </TableCell>
