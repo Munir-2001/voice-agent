@@ -17,12 +17,60 @@ import {
   parseAreaMap,
   isUncallableUsNumber,
 } from "@/lib/agent/outbound";
+import {
+  checkTwilioBalance,
+  failureBreakerThreshold,
+} from "@/lib/agent/billing-guard";
+import { sendBillingAlert, emailProfile, type CampaignGoal } from "@/lib/email";
 
 // TCPA legal calling hours (lead-local). The configured campaign window must stay
 // inside this; a manual "Call now" is clamped to it so it can fire outside the
 // tighter business window but never breaks the law.
 const LEGAL_START_HOUR = 8;
 const LEGAL_END_HOUR = 21;
+
+/**
+ * Auto-pause a campaign to protect billing. Flips `active` off (so the cron stops
+ * dialing it), records WHY + WHEN, and alerts the campaign's team. The campaign
+ * stays paused until someone tops up / fixes the provider and re-activates it from
+ * the dashboard (which clears halt_reason + resets the failure counter). Never
+ * throws — halting must succeed even if the alert email doesn't.
+ */
+async function haltCampaign(
+  supabase: ReturnType<typeof createServiceClient>,
+  workspaceId: number,
+  goalType: string,
+  reason: string,
+): Promise<void> {
+  await supabase
+    .from("campaign_settings")
+    .update({
+      active: false,
+      halt_reason: reason,
+      halted_at: new Date().toISOString(),
+    })
+    .eq("workspace_id", workspaceId);
+  console.error(`dial-tick[ws ${workspaceId}]: CAMPAIGN AUTO-PAUSED — ${reason}`);
+
+  const goal: CampaignGoal = goalType === "ai_meeting" ? "ai_meeting" : "financing";
+  const r = await sendBillingAlert(
+    {
+      subject: `⛔ Calling auto-paused (ws ${workspaceId}) — ${reason}`,
+      heading: "Calling was auto-paused to protect your billing",
+      rows: [
+        ["Workspace", String(workspaceId)],
+        ["Campaign", goal],
+        ["Reason", reason],
+        ["Paused at", new Date().toISOString()],
+      ],
+      action:
+        "Top up Twilio (and confirm ElevenLabs is healthy), then re-activate the " +
+        "campaign from the dashboard to resume. Dialing stays off until you do.",
+    },
+    emailProfile(goal),
+  );
+  if (!r.sent) console.error(`dial-tick[ws ${workspaceId}]: billing alert skipped — ${r.reason}`);
+}
 
 export interface DialTickResult {
   workspaceId?: number;
@@ -81,6 +129,27 @@ export async function runDialTick(
         `refusing to dial with the shared env agent (would answer as Rose's agent).`,
     );
     return { workspaceId, skipped: "no agent configured for this campaign" };
+  }
+
+  // ── Billing safeguard 1: Twilio balance gate ────────────────────────────────
+  // Before spending a cent on calls, make sure Twilio can actually place them. A
+  // drained Twilio account still lets ElevenLabs CREATE a conversation (billed)
+  // that then fails at Twilio as a 0-second error — draining BOTH balances. If the
+  // balance is KNOWN and below the floor, auto-pause this campaign and stop. This
+  // check runs for manual "Call now" too (a low balance blocks it regardless).
+  // Balance is account-wide + cached ~60s, so this is ≈1 API call/min total.
+  const bal = await checkTwilioBalance();
+  if (bal.low) {
+    await haltCampaign(
+      supabase,
+      workspaceId,
+      settings.goal_type,
+      `Twilio balance $${bal.balance!.toFixed(2)} is below the $${bal.floor.toFixed(2)} floor`,
+    );
+    return {
+      workspaceId,
+      skipped: `halted: low Twilio balance ($${bal.balance!.toFixed(2)})`,
+    };
   }
 
   // Effective window: the configured business hours for scheduled ticks, or the
@@ -247,6 +316,15 @@ export async function runDialTick(
   const placed: string[] = [];
   const failed: { id: string; error: string }[] = [];
 
+  // ── Billing safeguard 2: consecutive-failure circuit breaker ────────────────
+  // `consecutive_failures` persists across ticks (a tick may place only 1 call),
+  // so a slow drip of failures still trips it. Any successful call resets it to 0.
+  // When it reaches the threshold we auto-pause — this is what stops ElevenLabs
+  // being fed a failing call every minute all day when Twilio/ElevenLabs is down.
+  const breaker = failureBreakerThreshold();
+  let streak = settings.consecutive_failures ?? 0;
+  let tripped = false;
+
   for (let i = 0; i < eligible.length; i++) {
     const lead = eligible[i];
     // Prefer a caller ID in the lead's own area code (local presence). If none
@@ -273,31 +351,72 @@ export async function runDialTick(
         .eq("id", lead.id)
         .eq("workspace_id", workspaceId);
       placed.push(lead.id);
+      streak = 0; // a healthy call clears the breaker
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`dial-tick: call failed for lead ${lead.id}:`, message);
       failed.push({ id: lead.id, error: message });
+      streak++;
 
-      // CRITICAL: do NOT leave the lead untouched, or a permanently-failing
-      // number (e.g. a Twilio geo-permission block on Puerto Rico / territory
-      // area codes, or an invalid number) gets re-tried EVERY tick forever,
-      // flooding ElevenLabs with 0-second errored conversations.
-      //   • Permanent provider rejections  → mark bad_number (terminal, never retried).
-      //   • Anything else (transient)       → count the attempt so it's bounded by max_attempts.
+      // Classify the failure so we penalize the LEAD only when it's the lead's
+      // fault — an account/provider problem must never burn a real lead.
+      //   • account-level (balance/suspended/auth/ElevenLabs 5xx/429) → leave the
+      //     lead fully re-dialable (no attempt burned); the breaker below halts us.
+      //   • permanent lead problem (geo/invalid/toll-free)            → bad_number.
+      //   • anything else (transient)                                 → count the
+      //     attempt so it's bounded by max_attempts.
+      const accountLevel =
+        /insufficient\s*funds|not\s*enough|balance|suspend|account.*(closed|disabled)|unauthorized|\b401\b|\b402\b|\b403\b|\b429\b|\b5\d\d\b|temporarily unavailable|rate limit/i.test(
+          message,
+        );
       const permanent =
         /not authorized to call|geo[\s-]?permissions?|not a valid phone number|invalid ['"]?to['"]?|unverified/i.test(
           message,
         );
-      await supabase
-        .from("leads")
-        .update(
-          permanent
-            ? { status: "bad_number", last_called_at: now.toISOString() }
-            : { attempts: lead.attempts + 1, last_called_at: now.toISOString() },
-        )
-        .eq("id", lead.id)
-        .eq("workspace_id", workspaceId);
+
+      if (!accountLevel) {
+        await supabase
+          .from("leads")
+          .update(
+            permanent
+              ? { status: "bad_number", last_called_at: now.toISOString() }
+              : { attempts: lead.attempts + 1, last_called_at: now.toISOString() },
+          )
+          .eq("id", lead.id)
+          .eq("workspace_id", workspaceId);
+      }
+
+      // Trip the breaker the moment we hit the threshold — don't keep dialing the
+      // rest of this batch into a pipeline we already know is failing.
+      if (streak >= breaker) {
+        tripped = true;
+        break;
+      }
     }
+  }
+
+  // Persist the breaker counter so it carries across ticks (place its final value
+  // whether the streak grew or was reset by a success this tick).
+  await supabase
+    .from("campaign_settings")
+    .update({ consecutive_failures: streak })
+    .eq("workspace_id", workspaceId);
+
+  if (tripped) {
+    await haltCampaign(
+      supabase,
+      workspaceId,
+      settings.goal_type,
+      `${streak} consecutive call failures — Twilio/ElevenLabs may be down or the account drained`,
+    );
+    return {
+      workspaceId,
+      placed: placed.length,
+      ids: placed,
+      failed: failed.length,
+      skipped: `halted: ${streak} consecutive failures`,
+      ...(failed.length > 0 ? { errors: failed } : {}),
+    };
   }
 
   return {

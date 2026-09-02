@@ -24,9 +24,15 @@ export async function POST(request: Request) {
 
   const workspaceId = await getActiveWorkspaceId();
   const supabase = createServiceClient();
+  // Re-activating is the "I've topped up / fixed it, resume" action: clear any
+  // auto-pause reason and reset the failure counter so the safeguards start fresh.
+  // Otherwise a stale halt_reason / non-zero streak would trip us again instantly.
+  const patch = parsed.data.active
+    ? { active: true, halt_reason: null, halted_at: null, consecutive_failures: 0 }
+    : { active: false };
   const { error } = await supabase
     .from("campaign_settings")
-    .update({ active: parsed.data.active })
+    .update(patch)
     .eq("workspace_id", workspaceId);
 
   if (error) {

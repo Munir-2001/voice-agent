@@ -242,6 +242,52 @@ export async function sendLeadNotification(
 }
 
 /**
+ * Billing/safeguard alert to the team: a campaign was AUTO-PAUSED to protect
+ * spend (low Twilio balance, or a run of consecutive call failures). Sent to the
+ * campaign's own notify list so financing and NextGen alerts stay separate.
+ * Best-effort — never throws (the dialer must halt whether or not the email sends).
+ */
+export async function sendBillingAlert(
+  args: { subject: string; heading: string; rows: [string, string][]; action?: string },
+  profile: EmailProfile = emailProfile(),
+): Promise<{ sent: boolean; reason?: string }> {
+  if (!isEmailConfigured(profile)) return { sent: false, reason: "email not configured" };
+  const to = profile.notify;
+  if (to.length === 0) return { sent: false, reason: "no notification recipients" };
+
+  const text =
+    `${args.heading}\n\n` +
+    args.rows.map(([k, v]) => `${k}: ${v}`).join("\n") +
+    (args.action ? `\n\n${args.action}` : "");
+
+  const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1a1a1a;max-width:560px;">
+  <p style="font-weight:600;">⛔ ${esc(args.heading)}</p>
+  <table style="border-collapse:collapse;">${args.rows
+    .map(
+      ([k, v]) =>
+        `<tr><td style="padding:2px 12px 2px 0;color:#666;vertical-align:top;">${esc(k)}</td><td style="padding:2px 0;font-weight:500;">${esc(
+          v,
+        )}</td></tr>`,
+    )
+    .join("")}</table>
+  ${args.action ? `<p style="margin-top:16px;color:#b00;font-weight:500;">${esc(args.action)}</p>` : ""}
+</div>`;
+
+  try {
+    await transportFor(profile).sendMail({
+      from: `"${profile.fromName}" <${profile.user}>`,
+      to,
+      subject: args.subject,
+      html,
+      text,
+    });
+    return { sent: true };
+  } catch (err) {
+    return { sent: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
  * Emails a submitted business-verification form (for Twilio Trust Hub) to the
  * team so it can be entered into Twilio. Sent to EMAIL_NOTIFY, or
  * BUSINESS_PROFILE_EMAIL if set.
