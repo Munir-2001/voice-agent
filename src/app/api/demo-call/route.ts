@@ -129,9 +129,13 @@ export async function POST(request: Request) {
   const now = new Date();
   const startOfDay = new Date(now);
   startOfDay.setHours(0, 0, 0, 0);
-  const dayAgo = new Date(now.getTime() - 24 * 60 * 60_000);
 
-  // Rate limit: 1 call per phone per 24h. Reuse an existing lead row if present.
+  // Abuse guard — one demo call per number, checked in the DB BEFORE we dispatch to
+  // ElevenLabs. DEMO_RECALL_HOURS: unset/0 = a number can NEVER be called again
+  // (one demo per number, period); >0 = allow another after that many hours. A
+  // number currently mid-call ('calling') is always blocked (stops double-dispatch
+  // from a double click or the two entry points firing together).
+  const recallHours = Number(process.env.DEMO_RECALL_HOURS) || 0;
   const { data: existingLead } = await supabase
     .from("leads")
     .select("id, last_called_at, status")
@@ -139,9 +143,14 @@ export async function POST(request: Request) {
     .eq("phone", phone)
     .maybeSingle();
   if (existingLead) {
-    const last = existingLead.last_called_at ? new Date(existingLead.last_called_at as string) : null;
-    if ((last && last > dayAgo) || existingLead.status === "calling") {
-      return json({ error: "This number was already called recently — try again tomorrow" }, 429);
+    const lastMs = existingLead.last_called_at
+      ? new Date(existingLead.last_called_at as string).getTime()
+      : 0;
+    const alreadyCalled =
+      existingLead.status === "calling" ||
+      (lastMs > 0 && (recallHours <= 0 || Date.now() - lastMs < recallHours * 3600_000));
+    if (alreadyCalled) {
+      return json({ error: "This number has already had a demo call." }, 429);
     }
   }
 
@@ -208,8 +217,9 @@ export async function POST(request: Request) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("demo-call: placeOutboundCall failed:", message);
-    // Don't leave the lead stuck 'calling' on a failure to hand off.
-    await supabase.from("leads").update({ status: "pending" }).eq("id", leadId).eq("workspace_id", workspaceId);
+    // Release the number's one-call slot: clear 'calling' AND last_called_at so a
+    // failed hand-off isn't counted against the 1-per-number guard (let them retry).
+    await supabase.from("leads").update({ status: "pending", last_called_at: null }).eq("id", leadId).eq("workspace_id", workspaceId);
     return json({ error: "Could not connect the call — please try again" }, 502);
   }
 
