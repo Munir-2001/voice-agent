@@ -6,7 +6,7 @@ import { CampaignProvider } from "@/components/campaign-context";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NumberBlurToggle } from "@/components/number-blur-toggle";
 import { Separator } from "@/components/ui/separator";
-import { getCampaignSettings, getInterestedCount, getCallbackCount } from "@/lib/data";
+import { getCampaignSettings, getInterestedCount, getCallbackCount, getPendingCallRequestCount } from "@/lib/data";
 import { getSessionUser } from "@/lib/auth";
 import { getUserWorkspaces, getActiveWorkspaceId } from "@/lib/workspace";
 
@@ -15,11 +15,12 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const [settings, interestedCount, callbackCount, user, workspaces, activeWorkspaceId] =
+  const [settings, interestedCount, callbackCount, requestCount, user, workspaces, activeWorkspaceId] =
     await Promise.all([
       getCampaignSettings(),
       getInterestedCount(),
       getCallbackCount(),
+      getPendingCallRequestCount(),
       getSessionUser(),
       getUserWorkspaces(),
       getActiveWorkspaceId(),
@@ -30,9 +31,11 @@ export default async function DashboardLayout({
         <AppSidebar
           interestedCount={interestedCount}
           callbackCount={callbackCount}
+          requestCount={requestCount}
           userEmail={user?.email ?? ""}
           workspaces={workspaces}
           activeWorkspaceId={activeWorkspaceId}
+          canCreateWorkspace={workspaces.some((w) => w.role === "owner")}
         />
         <SidebarInset>
           <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur-md">

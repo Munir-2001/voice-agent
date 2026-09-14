@@ -15,7 +15,21 @@ import "server-only";
 // every workspace in a single cron run (≈1 Twilio API call per minute total).
 
 const CACHE_MS = 60_000;
-let cache: { at: number; balance: number | null } | null = null;
+
+// A single probe of the Twilio account:
+//   • balance   — USD balance, or null if we couldn't read it.
+//   • inactive  — Twilio EXPLICITLY says the account is suspended/closed/not
+//                 active. This is a hard STOP: the same account is what places
+//                 the calls (via ElevenLabs), so if it's dead, every call fails
+//                 as a 0-second billed error. We halt on this rather than fail open.
+//   • unreachable — we couldn't determine status (network/transient). Fail OPEN;
+//                 the circuit breaker is the backstop.
+interface TwilioProbe {
+  balance: number | null;
+  inactive: boolean;
+  unreachable: boolean;
+}
+let cache: { at: number; probe: TwilioProbe } | null = null;
 
 // Minimum Twilio balance (USD) below which ALL dialing stops. Configurable via
 // env so you can raise the buffer without a deploy. Defaults to $1 (per request);
@@ -32,63 +46,114 @@ export function failureBreakerThreshold(): number {
   return Number.isInteger(v) && v > 0 ? v : 5;
 }
 
+// Basic-auth credentials for the Twilio REST API. PREFER an API Key (SK… + secret)
+// — it's revocable and scoped, so it can be rotated without touching the account's
+// master Auth Token — and fall back to the Account SID + Auth Token. Either way the
+// request URL still uses the Account SID (set separately). Returns null when no
+// usable pair is configured.
+function twilioBasicAuth(): string | null {
+  const keySid = process.env.TWILIO_API_KEY_SID;
+  const keySecret = process.env.TWILIO_API_CLIENT_SECRET;
+  if (keySid && keySecret) {
+    return Buffer.from(`${keySid}:${keySecret}`).toString("base64");
+  }
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  if (sid && token) {
+    return Buffer.from(`${sid}:${token}`).toString("base64");
+  }
+  return null;
+}
+
 // The balance gate only works when the app can reach the Twilio API. Twilio creds
 // historically lived ONLY inside ElevenLabs; set these in the app env to enable
 // the gate. Absent → gate self-disables (fails open; the breaker still protects).
+// Needs the Account SID (for the URL) plus either an API key pair or the Auth Token.
 export function twilioConfigured(): boolean {
-  return Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
+  return Boolean(process.env.TWILIO_ACCOUNT_SID && twilioBasicAuth());
 }
 
-// Current Twilio account balance in USD. Returns null when creds are absent or
-// the API errors — callers FAIL OPEN (proceed to dial) and rely on the circuit
-// breaker as the backstop, so a transient Twilio-status blip can't halt a healthy
-// campaign. Cached 60s (including the null/error result) to avoid hammering.
-export async function getTwilioBalance(force = false): Promise<number | null> {
-  if (!twilioConfigured()) return null;
+// Probe the Twilio account. Distinguishes three outcomes (see TwilioProbe):
+// an explicit "account not active" (halt), a readable balance (gate on the floor),
+// or an unreadable/transient state (fail open). Cached 60s (including errors) so a
+// per-minute cron across N workspaces makes at most one Twilio call per minute.
+async function probeTwilio(force = false): Promise<TwilioProbe> {
+  const off: TwilioProbe = { balance: null, inactive: false, unreachable: true };
+  if (!twilioConfigured()) return off;
   const now = Date.now();
-  if (!force && cache && now - cache.at < CACHE_MS) return cache.balance;
+  if (!force && cache && now - cache.at < CACHE_MS) return cache.probe;
 
   const sid = process.env.TWILIO_ACCOUNT_SID!;
-  const token = process.env.TWILIO_AUTH_TOKEN!;
+  const auth = twilioBasicAuth()!; // twilioConfigured() guarantees this is non-null
+  const save = (probe: TwilioProbe) => {
+    cache = { at: now, probe };
+    return probe;
+  };
   try {
     const res = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${sid}/Balance.json`,
-      {
-        headers: {
-          Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}`,
-        },
-      },
+      { headers: { Authorization: `Basic ${auth}` } },
     );
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.error(`Twilio balance ${res.status}: ${body.slice(0, 200)}`);
-      cache = { at: now, balance: null };
-      return null;
+      // A suspended/closed/inactive account is a DEFINITIVE "calls will fail" — the
+      // creds authenticated enough for Twilio to report the account is not active.
+      // Treat it as a hard stop, not a transient blip. A plain auth failure with no
+      // such wording is treated as unreachable (fail open) — the app's Twilio creds
+      // are separate from the ones ElevenLabs dials with, so a mere app-side typo
+      // shouldn't halt a campaign that's actually placing calls fine.
+      const inactive = /is not active|suspend|account.*(closed|deactivat|disabled)/i.test(body);
+      return save({ balance: null, inactive, unreachable: !inactive });
     }
     const data = (await res.json()) as { balance?: string; currency?: string };
     const bal = Number(data.balance);
-    const balance = Number.isFinite(bal) ? bal : null;
-    cache = { at: now, balance };
-    return balance;
+    return save({
+      balance: Number.isFinite(bal) ? bal : null,
+      inactive: false,
+      unreachable: !Number.isFinite(bal),
+    });
   } catch (err) {
     console.error(
       "Twilio balance fetch failed:",
       err instanceof Error ? err.message : String(err),
     );
-    cache = { at: now, balance: null };
-    return null;
+    return save({ balance: null, inactive: false, unreachable: true });
   }
 }
 
-// Is the Twilio balance KNOWN and below the floor? Unknown balance (null) →
-// low:false (fail open). `balance` is echoed back so callers can log/alert the
-// exact figure.
+// Current Twilio account balance in USD, or null if it couldn't be read.
+export async function getTwilioBalance(force = false): Promise<number | null> {
+  return (await probeTwilio(force)).balance;
+}
+
+// Should dialing STOP right now for a Twilio/billing reason? True when the account
+// is explicitly inactive OR the balance is known and below the floor. An
+// unreadable/transient state does NOT stop dialing (fail open; the circuit breaker
+// backstops). `reason` is human-readable for the halt log/alert.
 export async function checkTwilioBalance(): Promise<{
-  low: boolean;
+  stop: boolean;
+  reason: string | null;
   balance: number | null;
   floor: number;
 }> {
-  const balance = await getTwilioBalance();
+  const probe = await probeTwilio();
   const floor = minBalanceUsd();
-  return { low: balance != null && balance < floor, balance, floor };
+  if (probe.inactive) {
+    return {
+      stop: true,
+      reason: "Twilio account is suspended / not active — reactivate it in the Twilio console",
+      balance: probe.balance,
+      floor,
+    };
+  }
+  if (probe.balance != null && probe.balance < floor) {
+    return {
+      stop: true,
+      reason: `Twilio balance $${probe.balance.toFixed(2)} is below the $${floor.toFixed(2)} floor`,
+      balance: probe.balance,
+      floor,
+    };
+  }
+  return { stop: false, reason: null, balance: probe.balance, floor };
 }

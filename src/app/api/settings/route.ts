@@ -11,6 +11,23 @@ import { getActiveWorkspaceId } from "@/lib/workspace";
 const TIME = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 
+// Agent id (agent_…) and a comma-separated list of caller phone-number ids
+// (phnum_…). Empty string is allowed and means "fall back to the env default".
+const AGENT_ID = z.union([
+  z.literal(""),
+  z.string().trim().regex(/^agent_[A-Za-z0-9]+$/, "Must be an ElevenLabs agent id (agent_…)"),
+]);
+const PHNUM_LIST = z.union([
+  z.literal(""),
+  z
+    .string()
+    .trim()
+    .regex(
+      /^phnum_[A-Za-z0-9]+(\s*,\s*phnum_[A-Za-z0-9]+)*$/,
+      "Comma-separated ElevenLabs phone-number ids (phnum_…)",
+    ),
+]);
+
 const Body = z
   .object({
     name: z.string().trim().min(1).max(120),
@@ -19,6 +36,9 @@ const Body = z
     callsPerTick: z.number().int().min(1).max(20),
     dailyCap: z.number().int().min(1).max(2000),
     maxAttempts: z.number().int().min(1).max(10),
+    goalType: z.enum(["financing", "ai_meeting"]),
+    agentId: AGENT_ID.optional(),
+    callerNumberIds: PHNUM_LIST.optional(),
   })
   // Enforce legal US calling hours (TCPA 8am–9pm local) and a sane window.
   .refine((s) => toMin(s.windowStart) < toMin(s.windowEnd), {
@@ -28,6 +48,12 @@ const Body = z
   .refine((s) => toMin(s.windowStart) >= 8 * 60 && toMin(s.windowEnd) <= 21 * 60, {
     message: "Calling hours must stay within 8:00–21:00 (legal window)",
     path: ["windowStart"],
+  })
+  // Mirror the dialer's guard: an AI-meeting campaign must use its OWN agent, or it
+  // would answer as the shared financing agent. Refuse to save an unsafe config.
+  .refine((s) => s.goalType !== "ai_meeting" || Boolean(s.agentId && s.agentId.length > 0), {
+    message: "An AI-meeting campaign needs its own ElevenLabs agent id",
+    path: ["agentId"],
   });
 
 // Persist the campaign guardrails (calling hours + pacing). The dial-tick
@@ -54,6 +80,10 @@ export async function POST(request: Request) {
       calls_per_tick: s.callsPerTick,
       daily_cap: s.dailyCap,
       max_attempts: s.maxAttempts,
+      goal_type: s.goalType,
+      // Empty string → null so the dialer falls back to the env default agent/numbers.
+      elevenlabs_agent_id: s.agentId ? s.agentId : null,
+      caller_number_ids: s.callerNumberIds ? s.callerNumberIds : null,
     })
     .eq("workspace_id", workspaceId);
 

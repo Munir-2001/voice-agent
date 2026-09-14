@@ -11,6 +11,7 @@ import {
   Bot,
   ShieldCheck,
   PhoneCall,
+  PhoneIncoming,
   FlaskConical,
   Clock,
   History,
@@ -40,6 +41,7 @@ const NAV = [
   { title: "Interested", href: "/interested", icon: Sparkles },
   { title: "Interested history", href: "/interested/history", icon: History },
   { title: "Callbacks", href: "/callbacks", icon: Clock },
+  { title: "Call requests", href: "/requests", icon: PhoneIncoming },
   { title: "All leads", href: "/leads", icon: Users },
   { title: "Lists", href: "/lists", icon: ListChecks },
   { title: "Upload", href: "/upload", icon: Upload },
@@ -57,15 +59,19 @@ const MANAGE = [
 export function AppSidebar({
   interestedCount = 0,
   callbackCount = 0,
+  requestCount = 0,
   userEmail = "",
   workspaces = [],
   activeWorkspaceId = 1,
+  canCreateWorkspace = false,
 }: {
   interestedCount?: number;
   callbackCount?: number;
+  requestCount?: number;
   userEmail?: string;
   workspaces?: WorkspaceOption[];
   activeWorkspaceId?: number;
+  canCreateWorkspace?: boolean;
 }) {
   const activeWorkspaceName =
     workspaces.find((w) => w.id === activeWorkspaceId)?.name ?? "Workspace";
@@ -84,6 +90,7 @@ export function AppSidebar({
   const badgeFor = (href: string) => {
     if (href === "/interested" && interestedCount > 0) return String(interestedCount);
     if (href === "/callbacks" && callbackCount > 0) return String(callbackCount);
+    if (href === "/requests" && requestCount > 0) return String(requestCount);
     return null;
   };
 
@@ -143,7 +150,11 @@ export function AppSidebar({
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="gap-1 p-3">
-        <WorkspaceSwitcher workspaces={workspaces} activeId={activeWorkspaceId} />
+        <WorkspaceSwitcher
+          workspaces={workspaces}
+          activeId={activeWorkspaceId}
+          canCreate={canCreateWorkspace}
+        />
         <div className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2.5">
           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-semibold uppercase">
             {initials(userEmail.split("@")[0].replace(/[._-]/g, " ")) || "•"}

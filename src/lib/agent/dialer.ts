@@ -139,17 +139,9 @@ export async function runDialTick(
   // check runs for manual "Call now" too (a low balance blocks it regardless).
   // Balance is account-wide + cached ~60s, so this is ≈1 API call/min total.
   const bal = await checkTwilioBalance();
-  if (bal.low) {
-    await haltCampaign(
-      supabase,
-      workspaceId,
-      settings.goal_type,
-      `Twilio balance $${bal.balance!.toFixed(2)} is below the $${bal.floor.toFixed(2)} floor`,
-    );
-    return {
-      workspaceId,
-      skipped: `halted: low Twilio balance ($${bal.balance!.toFixed(2)})`,
-    };
+  if (bal.stop) {
+    await haltCampaign(supabase, workspaceId, settings.goal_type, bal.reason!);
+    return { workspaceId, skipped: `halted: ${bal.reason}` };
   }
 
   // Effective window: the configured business hours for scheduled ticks, or the

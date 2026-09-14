@@ -4,11 +4,15 @@ import { TestingPanel } from "@/components/testing-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FadeIn } from "@/components/motion";
 import { getCampaignSettings } from "@/lib/data";
+import { getElevenLabsInventory } from "@/lib/agent/elevenlabs-inventory";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const settings = await getCampaignSettings();
+  const [settings, inventory] = await Promise.all([
+    getCampaignSettings(),
+    getElevenLabsInventory(),
+  ]);
   return (
     <div className="mx-auto max-w-2xl space-y-8">
       <PageHeader
@@ -16,7 +20,7 @@ export default async function SettingsPage() {
         description="Campaign guardrails and compliance controls."
       />
       <FadeIn>
-        <SettingsForm settings={settings} />
+        <SettingsForm settings={settings} inventory={inventory} />
       </FadeIn>
       <FadeIn delay={0.05}>
         <TestingPanel />

@@ -18,6 +18,9 @@ export const campaignSettings: CampaignSettings = {
   dailyCap: 30,
   maxAttempts: 2,
   numbers: ["+14155550142", "+16505550188"],
+  goalType: "financing",
+  agentId: null,
+  callerNumberIds: null,
 };
 
 export const leads: Lead[] = [

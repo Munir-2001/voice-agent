@@ -88,6 +88,10 @@ export interface CampaignSettings {
   maxAttempts: number;
   numbers: string[];
   activeListId: number | null; // which lead list the dialer calls (null = all)
+  // ── Which agent answers on this campaign ──────────────────────────────────
+  goalType: "financing" | "ai_meeting"; // drives the value hook + classification
+  agentId: string | null; // ElevenLabs agent_id (agent_…); null → env default
+  callerNumberIds: string | null; // comma-separated phnum_ ids; null → env default
 }
 
 // A named lead list within a workspace. The dialer calls the workspace's active
@@ -105,4 +109,23 @@ export interface Suppression {
   phone: string;
   reason: "opt_out" | "dnc" | "bad_number";
   addedAt: string;
+}
+
+// A public "request a demo AI call" submission awaiting the account holder's
+// review. Approving it creates a lead the dialer can call; nothing dials until then.
+export type CallRequestStatus = "pending" | "approved" | "rejected";
+
+export interface CallRequest {
+  id: string;
+  name: string;
+  businessName: string;
+  phone: string; // E.164
+  email: string | null;
+  industry: string;
+  message: string | null;
+  source: string;
+  status: CallRequestStatus;
+  leadId: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
 }

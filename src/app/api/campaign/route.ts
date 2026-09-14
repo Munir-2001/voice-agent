@@ -6,8 +6,22 @@ import { isSameOrigin, clientIp, apiError } from "@/lib/security";
 import { rateLimit } from "@/lib/rate-limit";
 import { getSessionUser } from "@/lib/auth";
 import { getActiveWorkspaceId } from "@/lib/workspace";
+import { getActiveCampaignsForUser } from "@/lib/data";
 
-const Body = z.object({ active: z.boolean() });
+// `force` skips the double-activation guardrail (used after the user confirms the
+// "another campaign is already live" warning). Absent/false = enforce the guard.
+const Body = z.object({ active: z.boolean(), force: z.boolean().optional() });
+
+export const dynamic = "force-dynamic";
+
+// List every campaign that is live right now across the user's workspaces, so the
+// dashboard can show what's dialing and the toggle can pre-check before activating.
+export async function GET(request: Request) {
+  if (!isSameOrigin(request)) return apiError(403, "Forbidden");
+  if (!(await getSessionUser())) return apiError(401, "Unauthorized");
+  if (!isSupabaseConfigured()) return NextResponse.json({ active: [] });
+  return NextResponse.json({ active: await getActiveCampaignsForUser() });
+}
 
 // Toggle the campaign on/off. The dial-tick scheduler reads `active` before
 // placing any calls, so this is the master switch behind the dashboard toggle.
@@ -24,6 +38,24 @@ export async function POST(request: Request) {
 
   const workspaceId = await getActiveWorkspaceId();
   const supabase = createServiceClient();
+
+  // Double-activation guardrail: if the user is turning this campaign ON and
+  // ANOTHER campaign in their account is already live, refuse (409) unless they
+  // explicitly confirm with force:true. This is what stops two agents dialing in
+  // parallel and silently doubling Twilio + ElevenLabs spend. Pausing is never
+  // guarded — you can always stop.
+  if (parsed.data.active && !parsed.data.force) {
+    const others = (await getActiveCampaignsForUser()).filter(
+      (c) => c.workspaceId !== workspaceId,
+    );
+    if (others.length > 0) {
+      return NextResponse.json(
+        { error: "another_campaign_active", conflict: true, others },
+        { status: 409 },
+      );
+    }
+  }
+
   // Re-activating is the "I've topped up / fixed it, resume" action: clear any
   // auto-pause reason and reset the failure counter so the safeguards start fresh.
   // Otherwise a stale halt_reason / non-zero streak would trip us again instantly.

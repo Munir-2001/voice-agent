@@ -9,10 +9,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { CampaignSettings } from "@/lib/types";
+import type { EleInventory } from "@/lib/agent/elevenlabs-inventory";
 import { formatPhone } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
-export function SettingsForm({ settings }: { settings: CampaignSettings }) {
+export function SettingsForm({
+  settings,
+  inventory,
+}: {
+  settings: CampaignSettings;
+  inventory: EleInventory;
+}) {
   const router = useRouter();
   const [form, setForm] = useState({
     name: settings.name,
@@ -21,6 +36,9 @@ export function SettingsForm({ settings }: { settings: CampaignSettings }) {
     dailyCap: settings.dailyCap,
     callsPerTick: settings.callsPerTick,
     maxAttempts: settings.maxAttempts,
+    goalType: settings.goalType,
+    agentId: settings.agentId ?? "",
+    callerNumberIds: settings.callerNumberIds ?? "",
   });
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -53,6 +71,22 @@ export function SettingsForm({ settings }: { settings: CampaignSettings }) {
     }
   }
 
+  // Currently-selected caller-number ids, parsed from the stored comma string.
+  const selectedNumbers = new Set(
+    form.callerNumberIds.split(",").map((s) => s.trim()).filter(Boolean),
+  );
+  function toggleNumber(id: string) {
+    const next = new Set(selectedNumbers);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    set("callerNumberIds", Array.from(next).join(","));
+  }
+  const agentName = (id: string) =>
+    inventory.agents.find((a) => a.id === id)?.name ?? id;
+
+  const hasAgents = inventory.available && inventory.agents.length > 0;
+  const hasNumbers = inventory.available && inventory.phoneNumbers.length > 0;
+
   return (
     <div className="space-y-6">
       <Card>
@@ -71,6 +105,126 @@ export function SettingsForm({ settings }: { settings: CampaignSettings }) {
           <p className="text-xs text-muted-foreground">
             Shown in the top bar and sidebar.
           </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base font-semibold">Agent</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Which AI agent answers on this campaign, and the numbers it calls from.
+            Leave the IDs blank to use the account defaults.
+          </p>
+
+          <div className="space-y-2">
+            <Label>Campaign type</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <GoalButton
+                active={form.goalType === "financing"}
+                onClick={() => set("goalType", "financing")}
+                title="Financing"
+                desc="Business capital outreach"
+              />
+              <GoalButton
+                active={form.goalType === "ai_meeting"}
+                onClick={() => set("goalType", "ai_meeting")}
+                title="AI meeting"
+                desc="Book an AI exploratory call"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="agentId">Agent</Label>
+            {hasAgents ? (
+              <Select
+                value={form.agentId}
+                onValueChange={(v) => set("agentId", (v as string) ?? "")}
+              >
+                <SelectTrigger id="agentId" className="w-full">
+                  <SelectValue placeholder="Account default" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Account default</SelectItem>
+                  {inventory.agents.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              // Fallback when ElevenLabs is unreachable: manual id entry.
+              <Input
+                id="agentId"
+                value={form.agentId}
+                onChange={(e) => set("agentId", e.target.value)}
+                placeholder="agent_… (blank = account default)"
+                className="font-mono text-sm"
+              />
+            )}
+            {form.goalType === "ai_meeting" && !form.agentId.trim() && (
+              <p className="text-xs text-warning-ink">
+                An AI-meeting campaign needs its own agent, or it will answer as the
+                financing agent.
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label>Caller numbers</Label>
+            {hasNumbers ? (
+              <>
+                <div className="space-y-1.5">
+                  {inventory.phoneNumbers.map((p) => {
+                    const checked = selectedNumbers.has(p.id);
+                    const otherAgent =
+                      p.assignedAgentId && p.assignedAgentId !== form.agentId;
+                    return (
+                      <label
+                        key={p.id}
+                        className={cn(
+                          "flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-sm transition-colors",
+                          checked
+                            ? "border-primary/50 bg-primary/5"
+                            : "border-border hover:bg-muted/50",
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleNumber(p.id)}
+                          className="size-4 accent-primary"
+                        />
+                        <span className="font-mono">{formatPhone(p.number)}</span>
+                        {p.label && (
+                          <span className="text-muted-foreground">· {p.label}</span>
+                        )}
+                        {checked && otherAgent && (
+                          <span className="ml-auto text-xs text-warning-ink">
+                            bound to {agentName(p.assignedAgentId!)}
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Selected numbers are rotated per call. None selected = account
+                  default.
+                </p>
+              </>
+            ) : (
+              <Input
+                value={form.callerNumberIds}
+                onChange={(e) => set("callerNumberIds", e.target.value)}
+                placeholder="phnum_aaa, phnum_bbb (blank = account default)"
+                className="font-mono text-sm"
+              />
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -151,6 +305,35 @@ export function SettingsForm({ settings }: { settings: CampaignSettings }) {
         </Button>
       </div>
     </div>
+  );
+}
+
+function GoalButton({
+  active,
+  onClick,
+  title,
+  desc,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  desc: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "rounded-lg border px-3 py-2.5 text-left transition-colors",
+        active
+          ? "border-primary/50 bg-primary/5 ring-1 ring-primary/20"
+          : "border-border bg-card hover:bg-muted/50",
+      )}
+    >
+      <div className="text-sm font-medium">{title}</div>
+      <div className="text-xs text-muted-foreground">{desc}</div>
+    </button>
   );
 }
 

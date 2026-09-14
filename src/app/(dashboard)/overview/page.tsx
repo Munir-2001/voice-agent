@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Phone, PhoneOutgoing, Sparkles, Clock, ChevronRight, ArrowRight } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { CampaignHero } from "@/components/campaign-hero";
+import { ActiveCampaignsBanner } from "@/components/active-campaigns-banner";
 import { LiveCallMonitor } from "@/components/live-call-monitor";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { LiveActivityFeed, type ActivityItem } from "@/components/live-activity-feed";
@@ -51,6 +52,9 @@ export default async function OverviewPage() {
           monthTarget={MONTH_TARGET}
         />
       </FadeIn>
+
+      {/* parallel-campaign spend warning (renders nothing unless 2+ are live) */}
+      <ActiveCampaignsBanner />
 
       {/* actionable "needs your attention" banner */}
       {warm > 0 && (

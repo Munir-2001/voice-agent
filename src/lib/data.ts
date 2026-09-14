@@ -7,8 +7,8 @@ import "server-only";
 
 import { createServiceClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { getActiveWorkspaceId } from "@/lib/workspace";
-import type { Lead, Call, CampaignSettings, LeadList, LeadStatus, CallOutcome, TranscriptTurn } from "@/lib/types";
+import { getActiveWorkspaceId, getUserWorkspaces } from "@/lib/workspace";
+import type { Lead, Call, CampaignSettings, LeadList, LeadStatus, CallOutcome, TranscriptTurn, CallRequest, CallRequestStatus } from "@/lib/types";
 import {
   leads as sampleLeads,
   calls as sampleCalls,
@@ -31,6 +31,9 @@ const SAFE_SETTINGS: CampaignSettings = {
   dailyCap: 30,
   maxAttempts: 2,
   numbers: [],
+  goalType: "financing",
+  agentId: null,
+  callerNumberIds: null,
 };
 
 type Row = Record<string, unknown>;
@@ -94,6 +97,9 @@ function mapSettings(r: Row): CampaignSettings {
     maxAttempts: (r.max_attempts as number) ?? 2,
     numbers: (r.numbers as string[]) ?? [],
     activeListId: (r.active_list_id as number) ?? null,
+    goalType: (r.goal_type as string) === "ai_meeting" ? "ai_meeting" : "financing",
+    agentId: (r.elevenlabs_agent_id as string) ?? null,
+    callerNumberIds: (r.caller_number_ids as string) ?? null,
   };
 }
 
@@ -180,6 +186,142 @@ export async function getCampaignSettings(): Promise<CampaignSettings> {
     return SAFE_SETTINGS;
   }
   return data ? mapSettings(data as Row) : SAFE_SETTINGS;
+}
+
+// A live campaign somewhere in the user's account. Powers the double-activation
+// guardrail (warn when another is already dialing) and the transparency panel.
+export interface ActiveCampaign {
+  workspaceId: number;
+  name: string;
+  dailyCap: number;
+  goalType: string; // 'financing' | 'ai_meeting'
+  placedToday: number; // calls placed today (completed + in-flight)
+  isCurrent: boolean; // is this the workspace the user is currently viewing?
+}
+
+/**
+ * Every campaign that is ACTIVE right now across the workspaces this user belongs
+ * to — account-wide, not just the current workspace. This is what makes a second
+ * agent impossible to run unnoticed: the guardrail reads it before activating, and
+ * the dashboard panel shows it at all times. Returns [] when nothing is live.
+ */
+export async function getActiveCampaignsForUser(): Promise<ActiveCampaign[]> {
+  if (!isSupabaseConfigured()) return [];
+  const [workspaces, current] = await Promise.all([
+    getUserWorkspaces(),
+    getActiveWorkspaceId(),
+  ]);
+  const ids = workspaces.map((w) => w.id);
+  if (ids.length === 0) return [];
+
+  const sb = createServiceClient();
+  const { data, error } = await sb
+    .from("campaign_settings")
+    .select("workspace_id, name, daily_cap, goal_type")
+    .in("workspace_id", ids)
+    .eq("active", true);
+  if (error) {
+    console.error("getActiveCampaignsForUser:", error.message);
+    return [];
+  }
+  const rows = (data ?? []) as {
+    workspace_id: number;
+    name: string;
+    daily_cap: number;
+    goal_type: string;
+  }[];
+  if (rows.length === 0) return [];
+
+  // Today's placed-call count per active workspace (completed calls + leads still
+  // mid-call), so the panel/guardrail can show real dialing volume, not just caps.
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const iso = startOfDay.toISOString();
+  const counts = await Promise.all(
+    rows.map(async (r) => {
+      const [completed, inflight] = await Promise.all([
+        sb
+          .from("calls")
+          .select("id", { count: "exact", head: true })
+          .eq("workspace_id", r.workspace_id)
+          .gte("started_at", iso),
+        sb
+          .from("leads")
+          .select("id", { count: "exact", head: true })
+          .eq("workspace_id", r.workspace_id)
+          .eq("status", "calling")
+          .gte("last_called_at", iso),
+      ]);
+      return (completed.count ?? 0) + (inflight.count ?? 0);
+    }),
+  );
+
+  return rows.map((r, i) => ({
+    workspaceId: r.workspace_id,
+    name: r.name,
+    dailyCap: r.daily_cap,
+    goalType: r.goal_type,
+    placedToday: counts[i],
+    isCurrent: r.workspace_id === current,
+  }));
+}
+
+function mapCallRequest(r: Row): CallRequest {
+  return {
+    id: r.id as string,
+    name: (r.name as string) ?? "",
+    businessName: (r.business_name as string) ?? "",
+    phone: (r.phone as string) ?? "",
+    email: (r.email as string) ?? null,
+    industry: (r.industry as string) ?? "",
+    message: (r.message as string) ?? null,
+    source: (r.source as string) ?? "portfolio",
+    status: ((r.status as string) ?? "pending") as CallRequestStatus,
+    leadId: (r.lead_id as string) ?? null,
+    createdAt: (r.created_at as string) ?? new Date().toISOString(),
+    reviewedAt: (r.reviewed_at as string) ?? null,
+  };
+}
+
+// Call requests for the active workspace, newest first. Returns [] on any error
+// (e.g. the migration hasn't been run yet) so the dashboard never hard-fails.
+export async function getCallRequests(
+  status?: CallRequestStatus,
+  limit = 200,
+): Promise<CallRequest[]> {
+  if (!isSupabaseConfigured()) return [];
+  const ws = await getActiveWorkspaceId();
+  const sb = createServiceClient();
+  let q = sb
+    .from("call_requests")
+    .select("*")
+    .eq("workspace_id", ws)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (status) q = q.eq("status", status);
+  const { data, error } = await q;
+  if (error) {
+    console.error("getCallRequests:", error.message);
+    return [];
+  }
+  return ((data ?? []) as Row[]).map(mapCallRequest);
+}
+
+// Count of pending requests in the active workspace (drives the sidebar badge).
+export async function getPendingCallRequestCount(): Promise<number> {
+  if (!isSupabaseConfigured()) return 0;
+  const ws = await getActiveWorkspaceId();
+  const sb = createServiceClient();
+  const { count, error } = await sb
+    .from("call_requests")
+    .select("id", { count: "exact", head: true })
+    .eq("workspace_id", ws)
+    .eq("status", "pending");
+  if (error) {
+    // Table missing / not migrated yet → no badge, no crash.
+    return 0;
+  }
+  return count ?? 0;
 }
 
 // A lead is "interested/warm" only if it's interested or has a booked meeting
