@@ -10,6 +10,7 @@ const SELF_AUTHED_API = [
   "/api/test-call",
   "/api/test-email",
   "/api/business-profile", // public form submission (same-origin + rate-limited)
+  "/api/demo-call", // public instant-demo trigger (consent + honeypot + rate-limit + balance gate)
 ];
 
 // Pages anyone can reach without signing in.

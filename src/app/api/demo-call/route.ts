@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createServiceClient } from "@/lib/supabase/server";
-import { toE164US, areaCode } from "@/lib/phone";
+import { toE164International, areaCode } from "@/lib/phone";
 import { timezoneForAreaCode } from "@/lib/timezone";
 import { cleanName, cleanEmail } from "@/lib/clean";
 import { clientIp } from "@/lib/security";
@@ -23,6 +23,18 @@ import { checkTwilioBalance } from "@/lib/agent/billing-guard";
 export const dynamic = "force-dynamic";
 
 const DEFAULTS = { perIpHour: 3, dailyCap: 50 };
+
+// Countries we'll place a demo call to (ISO-3166 alpha-2). Keeps Twilio geo cost +
+// fraud exposure bounded. Override via DEMO_ALLOWED_COUNTRIES (comma-separated).
+// NOTE: each country here must ALSO be enabled in Twilio Voice Geo Permissions.
+// US, UK (+ the crown dependencies that share +44: Isle of Man, Jersey, Guernsey),
+// Italy, Australia. libphonenumber resolves the exact country from the number.
+const DEFAULT_ALLOWED_COUNTRIES = ["US", "GB", "IM", "JE", "GG", "IT", "AU"] as const;
+function allowedCountries(): readonly string[] {
+  const raw = (process.env.DEMO_ALLOWED_COUNTRIES ?? "")
+    .split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+  return raw.length > 0 ? raw : DEFAULT_ALLOWED_COUNTRIES;
+}
 
 function isLive(): boolean {
   return /^(1|true|yes|on)$/i.test(process.env.DEMO_LIVE ?? "");
@@ -90,8 +102,8 @@ export async function POST(request: Request) {
   // Consent is mandatory for an outbound call.
   if (b.consent !== true) return json({ error: "Consent is required to place the call" }, 422);
 
-  const phone = toE164US(b.phone ?? "");
-  if (!phone) return json({ error: "Please enter a valid US phone number" }, 422);
+  const phone = toE164International(b.phone ?? "", allowedCountries());
+  if (!phone) return json({ error: "We can only place a demo call to US, UK, Italy, or Australia numbers right now." }, 422);
   const name = cleanName(b.lead_name || b.name || "");
   if (!name) return json({ error: "Please enter your name" }, 422);
   const company = cleanName(b.company || b.businessName || "");
