@@ -99,6 +99,9 @@ export async function placeOutboundCall(
 
   const dynamic_variables: Record<string, string> = {
     name: lead.name,
+    // Alias used by the Mia demo agent's prompt ({{lead_name}}). Same value as
+    // `name`; kept separate so either convention works across agents.
+    lead_name: lead.name,
     // First name only, for a natural greeting ("is this Jordan?"). Falls back to
     // the full name, then a friendly default if the name is blank.
     first_name: lead.name.trim().split(/\s+/)[0] || lead.name || "there",

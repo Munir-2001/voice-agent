@@ -128,8 +128,20 @@ export async function POST(request: Request) {
     .select("goal_type")
     .eq("workspace_id", workspaceId)
     .maybeSingle();
-  const goal =
-    (wsSettings?.goal_type as string) === "ai_meeting" ? "ai_meeting" : "financing";
+  const goalType = (wsSettings?.goal_type as string) ?? "financing";
+  const goal = goalType === "ai_meeting" ? "ai_meeting" : "financing";
+
+  // ElevenLabs post-call analysis (data-collection results) → stored on the call
+  // for the demo-callback ("Mia") review view. Absent on non-demo calls → null.
+  const analysis = (evt.analysis ?? {}) as Record<string, unknown>;
+  const dcr = (analysis.data_collection_results ?? {}) as Record<
+    string,
+    { value?: unknown } | undefined
+  >;
+  const dcValue = (k: string): string | null => {
+    const v = dcr[k]?.value;
+    return v == null || v === "" ? null : String(v).slice(0, 500);
+  };
 
   const {
     outcome,
@@ -165,6 +177,10 @@ export async function POST(request: Request) {
     // Store on the call too, so even a standalone test call (no lead) shows the
     // extracted callback time on the call detail page.
     callback_at: callbackAt,
+    // Demo-callback ("Mia") analysis — null on normal calls.
+    demo_outcome: dcValue("outcome"),
+    gets_inbound_leads: dcValue("gets_inbound_leads"),
+    current_callback_speed: dcValue("current_callback_speed"),
   });
 
   if (leadId) {
@@ -201,7 +217,9 @@ export async function POST(request: Request) {
       goal === "ai_meeting"
         ? ["meeting_booked", "interested"].includes(outcome)
         : QUALIFIED.includes(outcome);
-    if (qualifies && lead) {
+    // Demo ("Mia") calls are followed up MANUALLY (Munir emails the booking link),
+    // so never fire the automated welcome/meeting emails for them.
+    if (qualifies && lead && goalType !== "demo") {
       // Per-campaign email identity (own SMTP/brand/reply-to/notify list).
       const profile = emailProfile(goal);
       const name = (lead.name as string) ?? "";

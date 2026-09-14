@@ -307,6 +307,54 @@ export async function getCallRequests(
   return ((data ?? []) as Row[]).map(mapCallRequest);
 }
 
+// A completed demo ("Mia") call, for the review view. Surfaced so an
+// interested/meeting_requested lead is never missed (you email the booking link).
+export interface DemoCall {
+  id: string;
+  name: string;
+  phone: string;
+  outcome: string | null; // ElevenLabs demo_outcome
+  getsInboundLeads: string | null;
+  callbackSpeed: string | null;
+  durationSecs: number;
+  startedAt: string;
+}
+
+// Completed demo calls in the active workspace (those with stored analysis),
+// newest first. [] on error / before the migration runs.
+export async function getDemoCalls(limit = 100): Promise<DemoCall[]> {
+  if (!isSupabaseConfigured()) return [];
+  const ws = await getActiveWorkspaceId();
+  const sb = createServiceClient();
+  const { data, error } = await sb
+    .from("calls")
+    .select(
+      "id, started_at, duration_secs, demo_outcome, gets_inbound_leads, current_callback_speed, external_number, leads(name)",
+    )
+    .eq("workspace_id", ws)
+    .not("demo_outcome", "is", null)
+    .order("started_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.error("getDemoCalls:", error.message);
+    return [];
+  }
+  return ((data ?? []) as Row[]).map((r) => {
+    const rel = r.leads as { name?: string } | { name?: string }[] | null;
+    const leadName = Array.isArray(rel) ? rel[0]?.name : rel?.name;
+    return {
+      id: r.id as string,
+      name: (leadName as string) || "Unknown",
+      phone: (r.external_number as string) ?? "",
+      outcome: (r.demo_outcome as string) ?? null,
+      getsInboundLeads: (r.gets_inbound_leads as string) ?? null,
+      callbackSpeed: (r.current_callback_speed as string) ?? null,
+      durationSecs: (r.duration_secs as number) ?? 0,
+      startedAt: (r.started_at as string) ?? new Date().toISOString(),
+    };
+  });
+}
+
 // Count of pending requests in the active workspace (drives the sidebar badge).
 export async function getPendingCallRequestCount(): Promise<number> {
   if (!isSupabaseConfigured()) return 0;
