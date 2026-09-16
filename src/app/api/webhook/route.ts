@@ -5,7 +5,8 @@ import { isValidTimeZone } from "@/lib/timezone";
 import type { TranscriptTurn } from "@/lib/types";
 import { verifyWebhookSignature, clientIp, apiError } from "@/lib/security";
 import { rateLimit } from "@/lib/rate-limit";
-import { sendWelcomeEmail, sendLeadNotification, sendMeetingEmail, emailProfile } from "@/lib/email";
+import { sendWelcomeEmail, sendLeadNotification, sendMeetingEmail, sendDemoFollowupEmail, emailProfile } from "@/lib/email";
+import { drainDemoQueue } from "@/lib/agent/demo-queue";
 
 // Outcomes that make a lead "warm" — they get the welcome email + appear in the
 // /interested dashboard queue. Callbacks are deliberately NOT here: they're their
@@ -211,15 +212,47 @@ export async function POST(request: Request) {
     }
     await supabase.from("leads").update(patch).eq("id", leadId);
 
+    // This call just ended → a demo line freed up. If it belongs to the Mia demo
+    // workspace, drain the queue so the next waiting lead is dialed immediately.
+    // Best-effort: a drain failure must never break the webhook.
+    const miaWs = Number(process.env.MIA_WORKSPACE_ID);
+    if (Number.isInteger(miaWs) && miaWs > 0 && workspaceId === miaWs) {
+      try {
+        const drained = await drainDemoQueue(supabase, workspaceId);
+        if (drained.dialed > 0 || drained.reclaimed > 0) {
+          console.log(`webhook: demo queue drained — dialed ${drained.dialed}, reclaimed ${drained.reclaimed}`);
+        }
+      } catch (e) {
+        console.error("webhook: demo queue drain failed:", e instanceof Error ? e.message : String(e));
+      }
+    }
+
     // Warm outcome → email the prospect and alert the team. Both best-effort;
     // email must never break the webhook. Reuses the lead fetched above.
     const qualifies =
       goal === "ai_meeting"
         ? ["meeting_booked", "interested"].includes(outcome)
         : QUALIFIED.includes(outcome);
-    // Demo ("Mia") calls are followed up MANUALLY (Munir emails the booking link),
-    // so never fire the automated welcome/meeting emails for them.
-    if (qualifies && lead && goalType !== "demo") {
+    // Demo ("Mia") calls get their OWN automated follow-up: if the prospect
+    // actually engaged (interested / meeting_requested), email them the recap +
+    // booking link. voicemail / no-answer / not-interested get nothing.
+    if (goalType === "demo") {
+      const demoOutcome = dcValue("outcome"); // meeting_requested | interested | ...
+      const demoEngaged =
+        ["interested", "meeting_requested"].includes(demoOutcome ?? "") ||
+        ["interested", "meeting_booked"].includes(outcome);
+      if (demoEngaged && lead) {
+        const email = (lead.email as string) ?? null;
+        if (email) {
+          const r = await sendDemoFollowupEmail({
+            name: (lead.name as string) ?? "",
+            businessName: (lead.business_name as string) ?? "",
+            email,
+          });
+          if (!r.sent) console.error("demo follow-up email skipped:", r.reason);
+        }
+      }
+    } else if (qualifies && lead) {
       // Per-campaign email identity (own SMTP/brand/reply-to/notify list).
       const profile = emailProfile(goal);
       const name = (lead.name as string) ?? "";

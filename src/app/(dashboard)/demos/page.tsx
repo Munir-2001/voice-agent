@@ -4,6 +4,7 @@ import { FadeIn } from "@/components/motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { getDemoCalls } from "@/lib/data";
 import { formatPhone } from "@/lib/format";
+import { DeleteDemoButton, ResetNumberBox } from "@/components/demo-reset-controls";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,13 @@ export default async function DemosPage() {
         title="Demo calls"
         description="Completed instant-callback (Mia) demos. Leads marked interested or meeting-requested need your manual booking-link email."
       />
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-muted-foreground">
+          Reset a number to let it get a fresh demo call (for re-tests or recordings).
+        </p>
+        <ResetNumberBox />
+      </div>
 
       {followUps.length > 0 && (
         <FadeIn>
@@ -52,6 +60,7 @@ export default async function DemosPage() {
                       <th className="px-4 py-2 font-medium">Inbound leads</th>
                       <th className="px-4 py-2 font-medium">Callback speed today</th>
                       <th className="px-4 py-2 font-medium">Duration</th>
+                      <th className="px-4 py-2 font-medium text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -84,6 +93,9 @@ export default async function DemosPage() {
                           </td>
                           <td className="px-4 py-2.5 tnum text-muted-foreground">
                             {d.durationSecs}s
+                          </td>
+                          <td className="px-4 py-2.5 text-right">
+                            <DeleteDemoButton phone={d.phone} name={d.name} />
                           </td>
                         </tr>
                       );

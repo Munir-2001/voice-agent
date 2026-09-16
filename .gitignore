@@ -43,3 +43,8 @@ next-env.d.ts
 # kept local, not pushed (per request)
 /supabase/
 /README.md
+
+# local agent/tooling scratch — never commit or deploy
+/.claude-flow/
+/.claude/
+/brain/

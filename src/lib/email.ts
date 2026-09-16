@@ -92,6 +92,32 @@ export function emailProfile(goal: CampaignGoal = "financing"): EmailProfile {
   };
 }
 
+/**
+ * Email identity for the instant-demo ("Mia") follow-up — Munir's OWN inbox, kept
+ * separate from Rose (financing) and NextGen so the demo email actually comes
+ * FROM munir.abbasi@alomana.com. Set DEMO_SMTP_HOST/PORT/USER/PASS to that
+ * mailbox. Each field falls back to the shared SMTP_* if unset, so a partial
+ * config still sends (just from the shared inbox) rather than failing.
+ * Required for a true "from Munir" send: DEMO_SMTP_HOST, DEMO_SMTP_USER,
+ * DEMO_SMTP_PASS. Optional: DEMO_SMTP_PORT (465), DEMO_FROM_NAME ("Munir Abbasi"),
+ * DEMO_REPLY_TO (defaults to DEMO_SMTP_USER), DEMO_NOTIFY.
+ */
+export function demoEmailProfile(): EmailProfile {
+  const host = process.env.DEMO_SMTP_HOST || process.env.SMTP_HOST || "";
+  const port = Number(process.env.DEMO_SMTP_PORT || process.env.SMTP_PORT || 465);
+  const user = process.env.DEMO_SMTP_USER || process.env.SMTP_USER || "";
+  const pass = process.env.DEMO_SMTP_PASS || process.env.SMTP_PASS || "";
+  return {
+    host,
+    port,
+    user,
+    pass,
+    fromName: process.env.DEMO_FROM_NAME || "Munir Abbasi",
+    replyTo: process.env.DEMO_REPLY_TO || user,
+    notify: list(process.env.DEMO_NOTIFY),
+  };
+}
+
 export function isEmailConfigured(p: EmailProfile = emailProfile()): boolean {
   return Boolean(p.host && p.user && p.pass);
 }
@@ -399,6 +425,67 @@ NextGen AI`;
       to: lead.email,
       replyTo,
       subject: "Your NextGen AI call — a couple of quick things",
+      html,
+      text,
+    });
+    return { sent: true };
+  } catch (err) {
+    return { sent: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Instant-demo ("Mia") follow-up — sent to a prospect who ACTUALLY engaged on the
+ * demo call (outcome interested / meeting_requested). Recaps that the call itself
+ * was the demo and offers the 15-min booking link (BOOKING_LINK). Comes from Munir
+ * personally (DEMO_FROM_NAME / DEMO_REPLY_TO) rather than a campaign brand, since
+ * the demo is his own site. Never throws — a failure must not break the webhook.
+ */
+export async function sendDemoFollowupEmail(
+  lead: { name: string; businessName?: string; email: string | null },
+  profile: EmailProfile = demoEmailProfile(),
+): Promise<{ sent: boolean; reason?: string }> {
+  if (!isEmailConfigured(profile)) return { sent: false, reason: "email not configured" };
+  if (!lead.email || !looksLikeEmail(lead.email)) {
+    return { sent: false, reason: "no valid lead email" };
+  }
+
+  const first = lead.name.trim().split(/\s+/)[0] || "there";
+  const biz = lead.businessName || "your business";
+  const bookingLink = process.env.BOOKING_LINK || "";
+
+  const bookLine = bookingLink
+    ? `If you want this running on your own leads, grab 15 minutes with me here: ${bookingLink}`
+    : `If you want this running on your own leads, just reply and we'll set up a quick 15 minutes.`;
+  const bookLineHtml = bookingLink
+    ? `If you want this running on your own leads, grab 15 minutes with me here: <a href="${esc(bookingLink)}">${esc(bookingLink)}</a>`
+    : `If you want this running on your own leads, just reply and we'll set up a quick 15 minutes.`;
+
+  const text = `Hi ${first},
+
+That was Mia — my AI — calling you back seconds after you filled out the form. That call WAS the demo.
+
+That's exactly what it does for a business like ${biz}: the second a lead comes in, it calls them back — before they cool off or click a competitor. 24/7, every lead, in seconds.
+
+${bookLine}
+
+Great chatting,
+Munir`;
+
+  const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1a1a1a;max-width:560px;margin:0 auto;">
+  <p>Hi ${esc(first)},</p>
+  <p>That was <strong>Mia</strong> — my AI — calling you back seconds after you filled out the form. That call <strong>was</strong> the demo.</p>
+  <p>That's exactly what it does for a business like <strong>${esc(biz)}</strong>: the second a lead comes in, it calls them back — before they cool off or click a competitor. 24/7, every lead, in seconds.</p>
+  <p>${bookLineHtml}</p>
+  <p>Great chatting,<br/>Munir</p>
+</div>`;
+
+  try {
+    await transportFor(profile).sendMail({
+      from: `"${profile.fromName}" <${profile.user}>`,
+      to: lead.email,
+      replyTo: profile.replyTo,
+      subject: "That was my AI that just called you 👋",
       html,
       text,
     });
