@@ -41,6 +41,7 @@ export function LeadsTable({
   status,
   statusCounts,
   callIdByLead = {},
+  listId,
 }: {
   leads: Lead[];
   total: number;
@@ -50,6 +51,7 @@ export function LeadsTable({
   status: string;
   statusCounts: Record<string, number>;
   callIdByLead?: Record<string, string>;
+  listId?: number;
 }) {
   const router = useRouter();
   const [input, setInput] = useState(q);
@@ -65,6 +67,7 @@ export function LeadsTable({
   }) {
     const next = { page, size: pageSize, q, status, ...patch };
     const params = new URLSearchParams();
+    if (listId) params.set("list", String(listId));
     if (next.q) params.set("q", next.q);
     if (next.status && next.status !== "all") params.set("status", next.status);
     if (Number(next.page) > 1) params.set("page", String(next.page));

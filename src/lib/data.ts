@@ -497,9 +497,12 @@ export async function getLeadsPage(opts: {
   pageSize: number;
   q?: string;
   status?: string;
+  listId?: number | null;
 }): Promise<LeadsPage> {
   const { page, pageSize } = opts;
   const status = opts.status && opts.status !== "all" ? opts.status : undefined;
+  const listId =
+    opts.listId != null && Number.isFinite(opts.listId) ? opts.listId : undefined;
   // Strip characters that would break a PostgREST or()/ilike filter.
   const q = (opts.q ?? "").trim().replace(/[,()%*]/g, "");
 
@@ -526,6 +529,7 @@ export async function getLeadsPage(opts: {
     .from("leads")
     .select("*", { count: "exact" })
     .eq("workspace_id", ws);
+  if (listId !== undefined) query = query.eq("list_id", listId);
   if (status) query = query.eq("status", status);
   if (q) {
     query = query.or(
@@ -544,7 +548,9 @@ export async function getLeadsPage(opts: {
 
 // Per-status counts for the leads-page filter pills, scoped to the active
 // workspace. One lightweight query (status column only).
-export async function getLeadStatusCounts(): Promise<Record<string, number>> {
+export async function getLeadStatusCounts(
+  listId?: number | null,
+): Promise<Record<string, number>> {
   if (!isSupabaseConfigured()) {
     const m: Record<string, number> = {};
     for (const l of sampleLeads) m[l.status] = (m[l.status] ?? 0) + 1;
@@ -552,11 +558,14 @@ export async function getLeadStatusCounts(): Promise<Record<string, number>> {
   }
   const ws = await getActiveWorkspaceId();
   const sb = createServiceClient();
-  const { data, error } = await sb
+  let countsQuery = sb
     .from("leads")
     .select("status")
-    .eq("workspace_id", ws)
-    .limit(100_000);
+    .eq("workspace_id", ws);
+  if (listId != null && Number.isFinite(listId)) {
+    countsQuery = countsQuery.eq("list_id", listId);
+  }
+  const { data, error } = await countsQuery.limit(100_000);
   if (error) {
     console.error("getLeadStatusCounts:", error.message);
     return {};

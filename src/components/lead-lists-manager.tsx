@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Circle, Trash2, Plus, Loader2, Users, PhoneOutgoing } from "lucide-react";
+import Link from "next/link";
+import { CheckCircle2, Circle, Trash2, Plus, Loader2, Users, PhoneOutgoing, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -125,20 +126,24 @@ export function LeadListsManager({ lists }: { lists: LeadList[] }) {
         <div className="space-y-3">
           {lists.map((l) => (
             <Card key={l.id} className="flex items-center justify-between gap-3 p-4">
-              <div className="min-w-0">
+              <Link
+                href={`/leads?list=${l.id}`}
+                className="group min-w-0 flex-1 rounded-lg -m-1 p-1 transition-colors hover:bg-muted/50"
+              >
                 <div className="flex items-center gap-2">
-                  <p className="truncate text-sm font-semibold">{l.name}</p>
+                  <p className="truncate text-sm font-semibold group-hover:underline">{l.name}</p>
                   {l.active && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-success-muted px-2 py-0.5 text-[11px] font-medium text-success-ink">
                       <CheckCircle2 className="size-3" /> Active
                     </span>
                   )}
+                  <ChevronRight className="size-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                 </div>
                 <p className="mt-0.5 flex items-center gap-3 text-xs text-muted-foreground">
                   <span className="inline-flex items-center gap-1"><Users className="size-3.5" /> {l.total} leads</span>
                   <span className="inline-flex items-center gap-1"><PhoneOutgoing className="size-3.5" /> {l.pending} pending</span>
                 </p>
-              </div>
+              </Link>
               <div className="flex items-center gap-2">
                 {l.active ? (
                   <span className="inline-flex items-center gap-1.5 text-sm text-success">
