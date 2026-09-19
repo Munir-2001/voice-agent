@@ -168,8 +168,10 @@ export function LeadsTable({
                     onClick={callId ? () => router.push(`/calls/${callId}`) : undefined}
                   >
                     <TableCell>
-                      <div className="font-medium">{lead.name.trim()}</div>
-                      <div className="text-xs text-muted-foreground">{lead.businessName}</div>
+                      <div className="font-medium">{lead.name.trim() || lead.businessName || "—"}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {lead.name.trim() ? lead.businessName : ""}
+                      </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{lead.industry}</TableCell>
                     <TableCell className="num-mask font-mono text-sm">{formatPhone(lead.phone)}</TableCell>

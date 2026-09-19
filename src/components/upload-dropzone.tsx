@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
@@ -12,6 +12,7 @@ import {
   ShieldBan,
   Loader2,
   ArrowRight,
+  Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -30,48 +31,168 @@ interface LeadRow {
   website: string;
 }
 
+type FieldKey = keyof LeadRow;
+
+// Special mapping sentinels (a field maps to a column name, or one of these).
+const AUTO = "__auto__";
+const NONE = "__none__";
+
+// The canonical target fields, in display order. `aiUsed` = the AI reads this
+// during the call (see src/lib/agent/outbound.ts dynamic_variables); surfaced in
+// the coverage check so you know the call quality before importing.
+const FIELDS: { key: FieldKey; label: string; aiUsed?: boolean; required?: boolean }[] = [
+  { key: "phone", label: "Phone", required: true, aiUsed: true },
+  { key: "business_name", label: "Business name", aiUsed: true },
+  { key: "name", label: "Contact name", aiUsed: true },
+  { key: "industry", label: "Industry", aiUsed: true },
+  { key: "email", label: "Email" },
+  { key: "state", label: "State" },
+  { key: "website", label: "Website" },
+];
+
+const NAME_ALIASES = [
+  "name", "full name", "contact", "contact name", "person - name", "first name",
+  "first", "owner details", "owner", "owner name", "contact person",
+];
+const LAST_ALIASES = ["last name", "last", "surname"];
+const ALIASES: Record<FieldKey, string[]> = {
+  name: NAME_ALIASES,
+  business_name: ["business_name", "business name", "business", "company", "company name"],
+  phone: [
+    "phone", "phone number", "number", "mobile", "cell", "tel", "person - phone",
+    "company phone", "office phone", "business phone", "work phone", "phone 1",
+    "primary phone", "direct phone",
+  ],
+  email: ["email", "email address", "e-mail", "person - email"],
+  industry: [
+    "industry", "business type", "type", "niche", "niche / industry",
+    "niche/industry", "industry / niche", "source_query", "source query",
+    "search query", "category",
+  ],
+  state: ["state", "st"],
+  website: ["company website", "website", "web", "url", "site"],
+};
+
+const norm = (s: string) => s.trim().toLowerCase();
+const isValidEmail = (e: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
+
+// First column whose normalized header matches one of the aliases.
+function matchColumn(columns: string[], aliases: string[]): string {
+  for (const a of aliases) {
+    const hit = columns.find((c) => norm(c) === a);
+    if (hit) return hit;
+  }
+  return "";
+}
+
+// The column Auto-detect would pick for a field (for the dropdown hint).
+function detectedFor(field: FieldKey, columns: string[]): string {
+  return matchColumn(columns, ALIASES[field]);
+}
+
+// Resolve one field's value for a row under the current mapping.
+function cellValue(
+  field: FieldKey,
+  row: Record<string, unknown>,
+  mapping: Record<FieldKey, string>,
+  columns: string[],
+): string {
+  const m = mapping[field];
+  if (m === NONE) return "";
+  if (m !== AUTO) return String(row[m] ?? "").trim();
+
+  // Auto: name combines first + last if the source splits them.
+  if (field === "name") {
+    const fc = matchColumn(columns, NAME_ALIASES);
+    const lc = matchColumn(columns, LAST_ALIASES);
+    const first = fc ? String(row[fc] ?? "").trim() : "";
+    const last = lc ? String(row[lc] ?? "").trim() : "";
+    return [first, last].filter(Boolean).join(" ").trim();
+  }
+  const col = matchColumn(columns, ALIASES[field]);
+  return col ? String(row[col] ?? "").trim() : "";
+}
+
+function buildLeadRow(
+  row: Record<string, unknown>,
+  mapping: Record<FieldKey, string>,
+  columns: string[],
+): LeadRow {
+  return {
+    name: cellValue("name", row, mapping, columns),
+    business_name: cellValue("business_name", row, mapping, columns),
+    phone: cellValue("phone", row, mapping, columns),
+    email: cellValue("email", row, mapping, columns),
+    industry: cellValue("industry", row, mapping, columns),
+    state: cellValue("state", row, mapping, columns),
+    website: cellValue("website", row, mapping, columns),
+  };
+}
+
+function defaultMapping(): Record<FieldKey, string> {
+  return {
+    name: AUTO, business_name: AUTO, phone: AUTO, email: AUTO,
+    industry: AUTO, state: AUTO, website: AUTO,
+  };
+}
+
 interface Parsed {
-  fileName: string;
   total: number;
   valid: number;
   invalid: number;
   duplicates: number;
   sample: { name: string; phone: string; ok: boolean }[];
+  coverage: Record<FieldKey, number>; // non-empty count per field
   rows: LeadRow[];
+}
+
+// Turn raw rows + the chosen mapping into importable leads + preview stats.
+function computeParsed(
+  raw: Record<string, unknown>[],
+  mapping: Record<FieldKey, string>,
+  columns: string[],
+): Parsed {
+  const seenPhones = new Set<string>();
+  const seenEmails = new Set<string>();
+  let valid = 0, invalid = 0, duplicates = 0;
+  const sample: Parsed["sample"] = [];
+  const rows: LeadRow[] = [];
+  const coverage = {
+    name: 0, business_name: 0, phone: 0, email: 0, industry: 0, state: 0, website: 0,
+  } as Record<FieldKey, number>;
+
+  for (const r of raw) {
+    const row = buildLeadRow(r, mapping, columns);
+    rows.push(row);
+    for (const f of FIELDS) if (row[f.key]) coverage[f.key]++;
+
+    const e164 = toE164US(row.phone);
+    const email = row.email.trim().toLowerCase();
+
+    if (e164) {
+      if (seenPhones.has(e164)) { duplicates++; continue; }
+      seenPhones.add(e164);
+      valid++;
+      if (sample.length < 6) sample.push({ name: row.name || row.business_name || "—", phone: e164, ok: true });
+      continue;
+    }
+    if (isValidEmail(email)) {
+      if (seenEmails.has(email)) { duplicates++; continue; }
+      seenEmails.add(email);
+      valid++;
+      if (sample.length < 6) sample.push({ name: row.name || row.business_name || "—", phone: `✉ ${email}`, ok: true });
+      continue;
+    }
+    invalid++;
+    if (sample.length < 6) sample.push({ name: row.name || row.business_name || "—", phone: row.phone || "(no phone/email)", ok: false });
+  }
+
+  return { total: raw.length, valid, invalid, duplicates, sample, coverage, rows };
 }
 
 interface ImportResult {
   imported: number;
   rejected: { invalid: number; duplicate: number; suppressed: number };
-}
-
-// Case-insensitive header lookup — handles "Name", "name", " Phone ", etc.
-// Values are coerced to string because Excel gives numbers for phone columns.
-function field(row: Record<string, unknown>, ...names: string[]): string {
-  const norm = (s: string) => s.trim().toLowerCase();
-  for (const target of names) {
-    for (const key of Object.keys(row)) {
-      if (norm(key) === target) return String(row[key] ?? "").trim();
-    }
-  }
-  return "";
-}
-
-function mapRow(row: Record<string, unknown>): LeadRow {
-  // Full name may be one column, or split first/last (e.g. "Person - Name" +
-  // "Last Name" in the new list format) — combine them if so.
-  const first = field(row, "name", "full name", "contact", "contact name", "person - name", "first name", "first", "owner details", "owner", "owner name", "contact person");
-  const last = field(row, "last name", "last", "surname");
-  const name = [first, last].filter(Boolean).join(" ").trim();
-  return {
-    name,
-    business_name: field(row, "business_name", "business name", "business", "company", "company name"),
-    phone: field(row, "phone", "phone number", "number", "mobile", "cell", "tel", "person - phone", "company phone", "office phone", "business phone", "work phone", "phone 1", "primary phone", "direct phone"),
-    email: field(row, "email", "email address", "e-mail", "person - email"),
-    industry: field(row, "industry", "business type", "type", "niche", "niche / industry", "niche/industry", "industry / niche"),
-    state: field(row, "state", "st"),
-    website: field(row, "company website", "website", "web", "url", "site"),
-  };
 }
 
 interface ListLite {
@@ -82,12 +203,17 @@ interface ListLite {
 
 export function UploadDropzone() {
   const [drag, setDrag] = useState(false);
-  const [parsed, setParsed] = useState<Parsed | null>(null);
   const [busy, setBusy] = useState(false);
   const [importing, setImporting] = useState(false);
   const [imported, setImported] = useState<ImportResult | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Raw parsed file + detected columns + the current column→field mapping.
+  const [rawRows, setRawRows] = useState<Record<string, unknown>[]>([]);
+  const [columns, setColumns] = useState<string[]>([]);
+  const [fileName, setFileName] = useState("");
+  const [mapping, setMapping] = useState<Record<FieldKey, string>>(defaultMapping);
 
   // Lead lists: the upload is tagged with the chosen list so you can run a
   // campaign on just that list. "" = no list (uploads into the general pool).
@@ -102,6 +228,20 @@ export function UploadDropzone() {
       .then((d) => setLists(d.lists ?? []))
       .catch(() => {});
   }, []);
+
+  // Preview recomputes automatically whenever the file or the mapping changes.
+  const parsed = useMemo<Parsed | null>(() => {
+    if (rawRows.length === 0) return null;
+    return computeParsed(rawRows, mapping, columns);
+  }, [rawRows, mapping, columns]);
+
+  function reset() {
+    setRawRows([]);
+    setColumns([]);
+    setFileName("");
+    setMapping(defaultMapping());
+    setImported(null);
+  }
 
   async function createList() {
     const name = newName.trim();
@@ -128,61 +268,25 @@ export function UploadDropzone() {
     }
   }
 
-  // Shared: turn raw rows (from CSV or Excel) into validated leads + preview.
-  // A row is importable if it has a valid phone OR a valid email — email-only
-  // rows import as leads for email outreach (the dialer skips phone-less leads).
-  function processRows(raw: Record<string, unknown>[], fileName: string) {
-    const seenPhones = new Set<string>();
-    const seenEmails = new Set<string>();
-    let valid = 0,
-      invalid = 0,
-      duplicates = 0;
-    const sample: Parsed["sample"] = [];
-    const rows: LeadRow[] = [];
-    const isValidEmail = (e: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
-
-    for (const r of raw) {
-      const row = mapRow(r);
-      rows.push(row);
-      const e164 = toE164US(row.phone);
-      const email = (row.email || "").trim().toLowerCase();
-
-      if (e164) {
-        if (seenPhones.has(e164)) {
-          duplicates++;
-          continue;
-        }
-        seenPhones.add(e164);
-        valid++;
-        if (sample.length < 6) sample.push({ name: row.name || "—", phone: e164, ok: true });
-        continue;
-      }
-
-      // No phone — importable only if it has a valid email.
-      if (isValidEmail(email)) {
-        if (seenEmails.has(email)) {
-          duplicates++;
-          continue;
-        }
-        seenEmails.add(email);
-        valid++;
-        if (sample.length < 6) sample.push({ name: row.name || "—", phone: `✉ ${email}`, ok: true });
-        continue;
-      }
-
-      invalid++;
-      if (sample.length < 6)
-        sample.push({ name: row.name || "—", phone: row.phone || "(no phone/email)", ok: false });
+  function ingest(raw: Record<string, unknown>[], name: string) {
+    const rows = raw.filter((r) => r && Object.keys(r).length > 0);
+    if (rows.length === 0) {
+      toast.error("No rows found", { description: "Make sure the file has a header row and data." });
+      setBusy(false);
+      return;
     }
-
-    setParsed({ fileName, total: raw.length, valid, invalid, duplicates, sample, rows });
+    setColumns(Object.keys(rows[0]));
+    setMapping(defaultMapping());
+    setRawRows(rows);
+    setFileName(name);
+    setImported(null);
     setBusy(false);
   }
 
   function handleFile(file: File) {
     setBusy(true);
     setImported(null);
-    setParsed(null);
+    setRawRows([]);
 
     const isExcel = /\.(xlsx|xls|xlsm|xlsb)$/i.test(file.name);
     if (isExcel) {
@@ -195,7 +299,7 @@ export function UploadDropzone() {
             defval: "",
             blankrows: false,
           });
-          processRows(rows, file.name);
+          ingest(rows, file.name);
         })
         .catch(() => {
           toast.error("Could not read that Excel file", {
@@ -209,7 +313,7 @@ export function UploadDropzone() {
     Papa.parse<Record<string, unknown>>(file, {
       header: true,
       skipEmptyLines: true,
-      complete: (res) => processRows(res.data, file.name),
+      complete: (res) => ingest(res.data, file.name),
       error: () => {
         toast.error("Could not read that file", { description: "Make sure it's a valid CSV." });
         setBusy(false);
@@ -234,10 +338,7 @@ export function UploadDropzone() {
         const res = await fetch("/api/leads/upload", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            rows: chunk,
-            listId: listId ? Number(listId) : null,
-          }),
+          body: JSON.stringify({ rows: chunk, listId: listId ? Number(listId) : null }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -258,7 +359,7 @@ export function UploadDropzone() {
       }
       setImported(totals);
       toast.success(`${totals.imported} leads imported`, {
-        description: "They'll be dialed during business hours.",
+        description: "Saved. Nothing is called until you activate the campaign and its list.",
       });
     } catch {
       toast.error("Network error — could not reach the server");
@@ -341,8 +442,8 @@ export function UploadDropzone() {
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             or click to browse · .csv, .xlsx, .xls · needs a{" "}
-            <span className="font-medium">phone or email</span> column; also reads
-            name, business, industry, state
+            <span className="font-medium">phone or email</span> column; map the rest
+            after dropping
           </p>
         </div>
         <input
@@ -374,25 +475,109 @@ export function UploadDropzone() {
               View leads
               <ArrowRight className="size-4" />
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => { setParsed(null); setImported(null); }}>
+            <Button variant="ghost" size="sm" onClick={reset}>
               Upload another
             </Button>
           </div>
         </Card>
       )}
 
-      {/* Parsed preview (before import) */}
+      {/* Column mapper + coverage (before import) */}
       {parsed && !imported && (
         <Card className="gap-0 p-5">
           <div className="flex items-center gap-2 border-b pb-4">
             <FileCheck2 className="size-4 text-success" />
-            <span className="text-sm font-medium">{parsed.fileName}</span>
+            <span className="text-sm font-medium">{fileName}</span>
             <span className="text-sm text-muted-foreground">· {parsed.total} rows parsed</span>
           </div>
 
+          {/* Mapping */}
+          <div className="border-b py-4">
+            <div className="mb-3 flex items-center gap-1.5">
+              <Wand2 className="size-4 text-muted-foreground" />
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Map your columns
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {FIELDS.map((f) => {
+                const detected = f.key === "name"
+                  ? matchColumn(columns, NAME_ALIASES)
+                  : detectedFor(f.key, columns);
+                const count = parsed.coverage[f.key];
+                return (
+                  <div key={f.key} className="flex items-center justify-between gap-2">
+                    <label className="flex min-w-[8rem] items-center gap-1.5 text-sm">
+                      {f.label}
+                      {f.required && <span className="text-danger">*</span>}
+                      {f.aiUsed && (
+                        <span
+                          title="Used by the AI on the call"
+                          className="rounded bg-primary/10 px-1 text-[10px] font-medium text-primary"
+                        >
+                          AI
+                        </span>
+                      )}
+                    </label>
+                    <select
+                      value={mapping[f.key]}
+                      onChange={(e) => setMapping((m) => ({ ...m, [f.key]: e.target.value }))}
+                      className={cn(
+                        "h-9 min-w-0 flex-1 rounded-lg border bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        count === 0 && "border-danger/40",
+                      )}
+                    >
+                      <option value={AUTO}>
+                        Auto{detected ? ` — ${detected}` : " — none found"}
+                      </option>
+                      {columns.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                      <option value={NONE}>Ignore</option>
+                    </select>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Coverage check */}
+          <div className="border-b py-4">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Coverage ({parsed.total} rows)
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {FIELDS.map((f) => {
+                const count = parsed.coverage[f.key];
+                const pct = parsed.total > 0 ? Math.round((count / parsed.total) * 100) : 0;
+                const ok = count > 0;
+                return (
+                  <span
+                    key={f.key}
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-xs",
+                      ok
+                        ? "border-success/30 bg-success/[0.06] text-foreground"
+                        : "border-danger/30 bg-danger/[0.06] text-muted-foreground",
+                    )}
+                  >
+                    {ok ? "✓" : "—"} {f.label}: {count}/{parsed.total} ({pct}%)
+                  </span>
+                );
+              })}
+            </div>
+            {parsed.coverage.name === 0 && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                No contact name detected — the AI will greet generically. That&apos;s fine
+                for business lists; map a name column above if your file has one.
+              </p>
+            )}
+          </div>
+
+          {/* Import stats */}
           <div className="grid grid-cols-3 gap-4 py-5">
             <Stat icon={<CircleCheck className="size-4 text-success" />} value={parsed.valid} label="Valid & ready" />
-            <Stat icon={<CircleX className="size-4 text-danger" />} value={parsed.invalid} label="Invalid numbers" />
+            <Stat icon={<CircleX className="size-4 text-danger" />} value={parsed.invalid} label="No phone/email" />
             <Stat icon={<ShieldBan className="size-4 text-muted-foreground" />} value={parsed.duplicates} label="Duplicates in file" />
           </div>
 
@@ -412,7 +597,7 @@ export function UploadDropzone() {
 
           <div className="mt-5 flex items-center justify-between border-t pt-4">
             <p className="text-xs text-muted-foreground">
-              Invalid numbers, in-file duplicates, and suppressed numbers are dropped on the server.
+              Rows with no phone/email, in-file duplicates, and suppressed numbers are dropped on the server.
             </p>
             <Button disabled={parsed.valid === 0 || importing} onClick={doImport} className="gap-1.5">
               {importing && <Loader2 className="size-4 animate-spin" />}
