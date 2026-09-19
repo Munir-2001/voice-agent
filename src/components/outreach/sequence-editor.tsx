@@ -6,7 +6,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Plus, Trash2, Eye, EyeOff } from "lucide-react";
+import { Loader2, Plus, Trash2, Eye, EyeOff, Send } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -81,6 +81,25 @@ function StepCard({ step, onDeleted }: StepCardProps) {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [preview, setPreview] = useState(false);
+  const [testing, setTesting] = useState(false);
+
+  async function sendTest() {
+    setTesting(true);
+    try {
+      const res = await fetch("/api/outreach/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subject, bodyHtml: body }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Could not send test");
+      toast.success(`Test sent to ${data.sent}. Check your inbox (and spam).`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not send test");
+    } finally {
+      setTesting(false);
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -183,6 +202,10 @@ function StepCard({ step, onDeleted }: StepCardProps) {
             {preview ? "Edit HTML" : "Preview"}
           </Button>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={sendTest} disabled={testing}>
+              {testing ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+              Send test to me
+            </Button>
             <Button
               variant="ghost"
               size="sm"
