@@ -129,31 +129,50 @@ export function UploadDropzone() {
   }
 
   // Shared: turn raw rows (from CSV or Excel) into validated leads + preview.
+  // A row is importable if it has a valid phone OR a valid email — email-only
+  // rows import as leads for email outreach (the dialer skips phone-less leads).
   function processRows(raw: Record<string, unknown>[], fileName: string) {
-    const seen = new Set<string>();
+    const seenPhones = new Set<string>();
+    const seenEmails = new Set<string>();
     let valid = 0,
       invalid = 0,
       duplicates = 0;
     const sample: Parsed["sample"] = [];
     const rows: LeadRow[] = [];
+    const isValidEmail = (e: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
 
     for (const r of raw) {
       const row = mapRow(r);
       rows.push(row);
       const e164 = toE164US(row.phone);
-      if (!e164) {
-        invalid++;
-        if (sample.length < 6)
-          sample.push({ name: row.name || "—", phone: row.phone || "(blank)", ok: false });
+      const email = (row.email || "").trim().toLowerCase();
+
+      if (e164) {
+        if (seenPhones.has(e164)) {
+          duplicates++;
+          continue;
+        }
+        seenPhones.add(e164);
+        valid++;
+        if (sample.length < 6) sample.push({ name: row.name || "—", phone: e164, ok: true });
         continue;
       }
-      if (seen.has(e164)) {
-        duplicates++;
+
+      // No phone — importable only if it has a valid email.
+      if (isValidEmail(email)) {
+        if (seenEmails.has(email)) {
+          duplicates++;
+          continue;
+        }
+        seenEmails.add(email);
+        valid++;
+        if (sample.length < 6) sample.push({ name: row.name || "—", phone: `✉ ${email}`, ok: true });
         continue;
       }
-      seen.add(e164);
-      valid++;
-      if (sample.length < 6) sample.push({ name: row.name || "—", phone: e164, ok: true });
+
+      invalid++;
+      if (sample.length < 6)
+        sample.push({ name: row.name || "—", phone: row.phone || "(no phone/email)", ok: false });
     }
 
     setParsed({ fileName, total: raw.length, valid, invalid, duplicates, sample, rows });
@@ -322,8 +341,8 @@ export function UploadDropzone() {
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             or click to browse · .csv, .xlsx, .xls · needs a{" "}
-            <span className="font-medium">phone</span> column; also reads name, email,
-            business, industry, state
+            <span className="font-medium">phone or email</span> column; also reads
+            name, business, industry, state
           </p>
         </div>
         <input
