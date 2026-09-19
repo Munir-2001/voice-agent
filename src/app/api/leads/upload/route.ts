@@ -92,63 +92,117 @@ export async function POST(request: Request) {
     ((suppressed ?? []) as { phone: string }[]).map((s) => s.phone),
   );
 
-  const seen = new Set<string>();
-  const clean: Record<string, unknown>[] = [];
+  const seenPhones = new Set<string>();
+  const seenEmails = new Set<string>();
+  const phoneLeads: Record<string, unknown>[] = [];
+  const emailOnly: Record<string, unknown>[] = [];
   const rejects = { invalid: 0, duplicate: 0, suppressed: 0 };
+
+  const isValidEmail = (e: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
+
+  const base = (row: (typeof rows)[number]) => ({
+    workspace_id: workspaceId,
+    list_id: listId,
+    name: cleanName(row.name),
+    business_name: cleanName(row.business_name),
+    industry: (row.industry ?? "").trim(),
+    state: cleanState(row.state),
+    status: "pending" as const,
+    attempts: 0,
+    consent_source: row.consent_source ?? null,
+    website: (row.website ?? "").trim() || null,
+  });
 
   for (const row of rows) {
     const e164 = toE164US(row.phone ?? "");
-    if (!e164) {
-      rejects.invalid++;
+    const email = cleanEmail(row.email);
+
+    if (e164) {
+      if (blocked.has(e164)) {
+        rejects.suppressed++;
+        continue;
+      }
+      if (seenPhones.has(e164)) {
+        rejects.duplicate++;
+        continue;
+      }
+      seenPhones.add(e164);
+      phoneLeads.push({
+        ...base(row),
+        phone: e164,
+        email,
+        timezone: timezoneForAreaCode(areaCode(e164)),
+      });
       continue;
     }
-    if (blocked.has(e164)) {
-      rejects.suppressed++;
+
+    // No callable phone — keep it ONLY if it has a valid email (email-only lead,
+    // imported for email outreach; the dialer skips null-phone leads).
+    if (email && isValidEmail(email)) {
+      const key = email.toLowerCase();
+      if (seenEmails.has(key)) {
+        rejects.duplicate++;
+        continue;
+      }
+      seenEmails.add(key);
+      emailOnly.push({
+        ...base(row),
+        phone: null,
+        email,
+        timezone: timezoneForAreaCode(areaCode("")),
+      });
       continue;
     }
-    if (seen.has(e164)) {
-      rejects.duplicate++;
-      continue;
-    }
-    seen.add(e164);
-    clean.push({
-      workspace_id: workspaceId,
-      list_id: listId,
-      name: cleanName(row.name),
-      business_name: cleanName(row.business_name),
-      phone: e164,
-      email: cleanEmail(row.email),
-      industry: (row.industry ?? "").trim(),
-      state: cleanState(row.state),
-      timezone: timezoneForAreaCode(areaCode(e164)),
-      status: "pending" as const,
-      attempts: 0,
-      consent_source: row.consent_source ?? null,
-      website: (row.website ?? "").trim() || null,
-    });
+
+    rejects.invalid++;
   }
 
-  if (clean.length === 0) {
-    return NextResponse.json({ imported: 0, rejected: rejects });
-  }
+  let imported = 0;
 
-  // Upsert on (workspace_id, phone) so re-uploads don't duplicate within a
-  // workspace, but the same number can still exist in a different workspace.
-  const { error, count } = await supabase
-    .from("leads")
-    .upsert(clean, {
+  // Phone leads: upsert on (workspace_id, phone) so re-uploads don't duplicate
+  // within a workspace (the same number can still exist in another workspace).
+  if (phoneLeads.length > 0) {
+    const { error, count } = await supabase.from("leads").upsert(phoneLeads, {
       onConflict: "workspace_id,phone",
       ignoreDuplicates: true,
       count: "exact",
     });
-
-  if (error) {
-    console.error("lead upload failed:", error);
-    return apiError(500, "Could not import leads");
+    if (error) {
+      console.error("lead upload failed:", error);
+      return apiError(500, "Could not import leads");
+    }
+    imported += count ?? phoneLeads.length;
   }
 
-  return NextResponse.json({
-    imported: count ?? clean.length,
-    rejected: rejects,
-  });
+  // Email-only leads: (workspace_id, phone) can't dedupe NULL phones, so dedupe
+  // by email against what's already in the workspace before inserting.
+  if (emailOnly.length > 0) {
+    const emails = emailOnly.map((l) => (l.email as string).toLowerCase());
+    const { data: existing } = await supabase
+      .from("leads")
+      .select("email")
+      .eq("workspace_id", workspaceId)
+      .in("email", emails);
+    const have = new Set(
+      ((existing ?? []) as { email: string | null }[]).map((r) =>
+        (r.email ?? "").toLowerCase(),
+      ),
+    );
+    const toInsert = emailOnly.filter(
+      (l) => !have.has((l.email as string).toLowerCase()),
+    );
+    rejects.duplicate += emailOnly.length - toInsert.length;
+    if (toInsert.length > 0) {
+      const { error, count } = await supabase
+        .from("leads")
+        .insert(toInsert, { count: "exact" });
+      if (error) {
+        console.error("email-only lead upload failed:", error);
+        return apiError(500, "Could not import leads");
+      }
+      imported += count ?? toInsert.length;
+    }
+  }
+
+  return NextResponse.json({ imported, rejected: rejects });
 }

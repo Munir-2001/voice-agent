@@ -221,7 +221,10 @@ export async function runDialTick(
     .eq("workspace_id", workspaceId)
     .in("status", retryable)
     .in("timezone", openTzs)
-    .lt("attempts", settings.max_attempts);
+    .lt("attempts", settings.max_attempts)
+    // Email-only leads (no phone) are never callable — exclude them so they
+    // can't burn a call slot or hit the placeOutboundCall path.
+    .not("phone", "is", null);
 
   // Run the campaign on ONLY the active list, when one is set (null = all leads).
   if (settings.active_list_id != null) {
