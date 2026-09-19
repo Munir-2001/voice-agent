@@ -78,6 +78,13 @@ export function buildVars(lead: {
   const name = (lead.name ?? "").trim();
   const first = name.split(/\s+/)[0] || "there";
   const company = (lead.business_name ?? "").trim();
+  // The instant-demo callback page that every CTA points at. Falls back to the
+  // app URL so a seeded link never renders empty.
+  const demoLink = (
+    process.env.OUTREACH_DEMO_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    ""
+  ).replace(/\/+$/, "");
   return {
     name,
     firstName: first,
@@ -86,6 +93,7 @@ export function buildVars(lead: {
     business_name: company,
     industry: (lead.industry ?? "").trim(),
     email: (lead.email ?? "").trim(),
+    demoLink,
   };
 }
 

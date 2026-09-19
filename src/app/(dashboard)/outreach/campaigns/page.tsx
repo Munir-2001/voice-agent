@@ -1,20 +1,33 @@
 import { PageHeader } from "@/components/page-header";
 import { requireAdminPage } from "@/lib/admin";
+import { listCampaigns, listSequences } from "@/lib/outreach/data";
+import { getLeadLists } from "@/lib/data";
+import { CampaignsView } from "@/components/outreach/campaigns-view";
+import { FadeIn } from "@/components/motion";
+
+export const dynamic = "force-dynamic";
 
 export default async function OutreachCampaignsPage() {
   await requireAdminPage();
+  const [campaigns, sequences, lists] = await Promise.all([
+    listCampaigns(),
+    listSequences(),
+    getLeadLists(),
+  ]);
+
   return (
     <div className="mx-auto max-w-5xl space-y-8">
       <PageHeader
         title="Email campaigns"
-        description="Cold-email drips: pick a list, choose a sequence, launch. Sent → opened → clicked → replied per step."
+        description="Send a sequence to a lead list on autopilot — daily cap, weekday send window, tracking, and unsubscribe handled for you."
       />
-      <p className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-        The 4-step campaign builder (Audience → Sequence → Emails → Launch) ships
-        in the next phase. Import the Florida broker list under{" "}
-        <span className="font-medium text-foreground">Leads → Upload</span> in the
-        meantime.
-      </p>
+      <FadeIn>
+        <CampaignsView
+          campaigns={campaigns}
+          sequences={sequences.map((s) => ({ id: s.id, name: s.name, stepCount: s.stepCount }))}
+          lists={lists.map((l) => ({ id: l.id, name: l.name, total: l.total }))}
+        />
+      </FadeIn>
     </div>
   );
 }

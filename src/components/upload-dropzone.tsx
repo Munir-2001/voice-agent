@@ -66,7 +66,7 @@ function mapRow(row: Record<string, unknown>): LeadRow {
   return {
     name,
     business_name: field(row, "business_name", "business name", "business", "company", "company name"),
-    phone: field(row, "phone", "phone number", "number", "mobile", "cell", "tel", "person - phone"),
+    phone: field(row, "phone", "phone number", "number", "mobile", "cell", "tel", "person - phone", "company phone", "office phone", "business phone", "work phone", "phone 1", "primary phone", "direct phone"),
     email: field(row, "email", "email address", "e-mail", "person - email"),
     industry: field(row, "industry", "business type", "type", "niche", "niche / industry", "niche/industry", "industry / niche"),
     state: field(row, "state", "st"),
