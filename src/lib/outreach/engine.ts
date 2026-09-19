@@ -109,6 +109,59 @@ export async function enrollCampaignLeads(campaignId: number): Promise<{ enrolle
   return { enrolled: rows.length };
 }
 
+/**
+ * Enroll ONE lead into a campaign — used to auto-start the drip when a new
+ * inbound lead signs up (e.g. the instant-demo form). Idempotent (a repeat
+ * signup won't double-enroll), skips leads with no email or on the opt-out
+ * list, and never throws — a nurture hiccup must not break the signup flow.
+ */
+export async function enrollLead(
+  campaignId: number,
+  leadId: string,
+): Promise<{ enrolled: boolean }> {
+  const supabase = createServiceClient();
+
+  const { data: campaign } = await supabase
+    .from("email_campaigns")
+    .select("id, workspace_id")
+    .eq("id", campaignId)
+    .maybeSingle();
+  if (!campaign) return { enrolled: false };
+
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("id, email")
+    .eq("id", leadId)
+    .maybeSingle();
+  const email = (lead?.email ?? "").trim();
+  if (!email) return { enrolled: false };
+
+  // Respect the workspace opt-out list.
+  const { data: suppressed } = await supabase
+    .from("email_suppression")
+    .select("email")
+    .eq("workspace_id", campaign.workspace_id)
+    .ilike("email", email)
+    .maybeSingle();
+  if (suppressed) return { enrolled: false };
+
+  const { error } = await supabase.from("email_enrollments").upsert(
+    {
+      campaign_id: campaignId,
+      lead_id: leadId,
+      current_step: 0,
+      next_send_at: new Date().toISOString(),
+      status: "active",
+    },
+    { onConflict: "campaign_id,lead_id", ignoreDuplicates: true },
+  );
+  if (error) {
+    console.error("enrollLead:", error.message);
+    return { enrolled: false };
+  }
+  return { enrolled: true };
+}
+
 /** Run one send tick for every active campaign. */
 export async function runEmailTick(): Promise<EmailTickResult[]> {
   const supabase = createServiceClient();
