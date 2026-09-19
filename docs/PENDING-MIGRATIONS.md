@@ -73,6 +73,7 @@ All are additive + safe — the existing (rose/financing) data and calls are unt
   ```sql
   alter table campaign_settings add column if not exists booking_link text;
   ```
+- [ ] `20260920120000_outreach.sql` — admin-only cold-email drip tables (email_sequences, email_steps, email_campaigns, email_enrollments, email_events). Additive, RLS-enabled (service-role only). Powers the new **Outreach** section. ⬅️ **RUN THIS** (required for the Outreach campaigns/sequences/send engine)
 - [ ] `docs/backfill-conversation-urls.sql` — (optional, after the column above) fill conversation links for leads called BEFORE this shipped. Paste Rose's agent id where noted, then run.
 
 ### Make the admin able to TOGGLE into Rose's workspace (UI switcher)

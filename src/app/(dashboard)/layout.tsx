@@ -8,6 +8,7 @@ import { NumberBlurToggle } from "@/components/number-blur-toggle";
 import { Separator } from "@/components/ui/separator";
 import { getCampaignSettings, getInterestedCount, getCallbackCount, getPendingCallRequestCount } from "@/lib/data";
 import { getSessionUser } from "@/lib/auth";
+import { isAdminEmail } from "@/lib/admin";
 import { getUserWorkspaces, getActiveWorkspaceId } from "@/lib/workspace";
 
 export default async function DashboardLayout({
@@ -36,6 +37,7 @@ export default async function DashboardLayout({
           workspaces={workspaces}
           activeWorkspaceId={activeWorkspaceId}
           canCreateWorkspace={workspaces.some((w) => w.role === "owner")}
+          isAdmin={isAdminEmail(user?.email ?? null)}
         />
         <SidebarInset>
           <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur-md">
