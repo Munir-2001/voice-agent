@@ -56,11 +56,15 @@ export async function POST(request: Request) {
     }
   }
 
-  // Re-activating is the "I've topped up / fixed it, resume" action: clear any
-  // auto-pause reason and reset the failure counter so the safeguards start fresh.
-  // Otherwise a stale halt_reason / non-zero streak would trip us again instantly.
+  // Re-activating is the "I've topped up / fixed it, resume" action: clear the
+  // auto-pause reason so the campaign can dial again. We deliberately do NOT zero
+  // `consecutive_failures`: the breaker decays it on healthy calls, so if the root
+  // cause really is fixed it clears itself within a few good calls — but if the
+  // pipeline is still broken, keeping the streak means the very next failure
+  // re-halts us after ONE wasted call instead of buying another full breaker's
+  // worth of billed failures on every resume.
   const patch = parsed.data.active
-    ? { active: true, halt_reason: null, halted_at: null, consecutive_failures: 0 }
+    ? { active: true, halt_reason: null, halted_at: null }
     : { active: false };
   const { error } = await supabase
     .from("campaign_settings")

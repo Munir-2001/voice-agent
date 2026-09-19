@@ -310,9 +310,12 @@ export async function runDialTick(
 
   // ── Billing safeguard 2: consecutive-failure circuit breaker ────────────────
   // `consecutive_failures` persists across ticks (a tick may place only 1 call),
-  // so a slow drip of failures still trips it. Any successful call resets it to 0.
-  // When it reaches the threshold we auto-pause — this is what stops ElevenLabs
-  // being fed a failing call every minute all day when Twilio/ElevenLabs is down.
+  // so a slow drip of failures still trips it. A healthy call DECAYS the streak by
+  // one (not a hard reset) so a PARTIAL outage — where some calls succeed and some
+  // fail as billed 0-second errors — still climbs to the threshold and halts,
+  // instead of one lucky success masking the bleed. When the streak hits the
+  // threshold we auto-pause: this is what stops ElevenLabs being fed a failing
+  // (billed) call every minute all day when Twilio/ElevenLabs is degraded.
   const breaker = failureBreakerThreshold();
   let streak = settings.consecutive_failures ?? 0;
   let tripped = false;
@@ -326,6 +329,31 @@ export async function runDialTick(
     const localId = areaMap[areaCodeOf(lead.phone) ?? ""];
     const agentPhoneNumberId =
       localId ?? phoneNumberIds[(placedToday + i) % phoneNumberIds.length];
+
+    // Claim-before-dial: atomically flip the lead to 'calling' and burn the
+    // attempt BEFORE placing the (billed) call. This buys two protections:
+    //   1. No double-dial. The `.in("status", retryable)` guard lets only ONE
+    //      invocation claim the lead — if an overlapping tick or a manual "Call
+    //      now" already grabbed it, this update matches 0 rows and we skip, so the
+    //      same lead can never be billed twice concurrently. It also guarantees a
+    //      billed call is always recorded (no unchecked write AFTER spending).
+    //   2. A hard redial ceiling. Because the attempt is burned up front (and kept
+    //      on failure, see below), a single "poison" lead whose placement always
+    //      errors is dialed at most `max_attempts` times total — it can no longer
+    //      loop every minute racking up billed failures.
+    const { data: claimed } = await supabase
+      .from("leads")
+      .update({
+        status: "calling",
+        attempts: lead.attempts + 1,
+        last_called_at: now.toISOString(),
+      })
+      .eq("id", lead.id)
+      .eq("workspace_id", workspaceId)
+      .in("status", retryable)
+      .select("id");
+    if (!claimed || claimed.length === 0) continue; // another tick already took it
+
     try {
       await placeOutboundCall(
         lead,
@@ -333,50 +361,32 @@ export async function runDialTick(
         settings.elevenlabs_agent_id ?? undefined,
         settings.goal_type === "ai_meeting" ? "ai_meeting" : "financing",
       );
-      await supabase
-        .from("leads")
-        .update({
-          status: "calling",
-          attempts: lead.attempts + 1,
-          last_called_at: now.toISOString(),
-        })
-        .eq("id", lead.id)
-        .eq("workspace_id", workspaceId);
       placed.push(lead.id);
-      streak = 0; // a healthy call clears the breaker
+      streak = Math.max(0, streak - 1); // a healthy call eases the breaker down
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`dial-tick: call failed for lead ${lead.id}:`, message);
       failed.push({ id: lead.id, error: message });
       streak++;
 
-      // Classify the failure so we penalize the LEAD only when it's the lead's
-      // fault — an account/provider problem must never burn a real lead.
-      //   • account-level (balance/suspended/auth/ElevenLabs 5xx/429) → leave the
-      //     lead fully re-dialable (no attempt burned); the breaker below halts us.
-      //   • permanent lead problem (geo/invalid/toll-free)            → bad_number.
-      //   • anything else (transient)                                 → count the
-      //     attempt so it's bounded by max_attempts.
-      const accountLevel =
-        /insufficient\s*funds|not\s*enough|balance|suspend|account.*(closed|disabled)|unauthorized|\b401\b|\b402\b|\b403\b|\b429\b|\b5\d\d\b|temporarily unavailable|rate limit/i.test(
-          message,
-        );
+      // Restore the lead from the 'calling' claim so it isn't stranded. A
+      // permanently un-callable number (geo/invalid/toll-free) is retired; every
+      // other failure — transient OR account/provider-level — keeps the burned
+      // attempt and returns the lead to the re-dialable queue ('no_answer', the
+      // same status recoverStaleCalls uses). Keeping the attempt is deliberate: it
+      // caps total redials at `max_attempts` regardless of failure type, which
+      // (with the breaker above) is what bounds spend during a provider outage —
+      // the breaker halts the whole campaign within `breaker` failures, so only a
+      // handful of leads ever lose an attempt to a transient blip.
       const permanent =
         /not authorized to call|geo[\s-]?permissions?|not a valid phone number|invalid ['"]?to['"]?|unverified/i.test(
           message,
         );
-
-      if (!accountLevel) {
-        await supabase
-          .from("leads")
-          .update(
-            permanent
-              ? { status: "bad_number", last_called_at: now.toISOString() }
-              : { attempts: lead.attempts + 1, last_called_at: now.toISOString() },
-          )
-          .eq("id", lead.id)
-          .eq("workspace_id", workspaceId);
-      }
+      await supabase
+        .from("leads")
+        .update({ status: permanent ? "bad_number" : "no_answer" })
+        .eq("id", lead.id)
+        .eq("workspace_id", workspaceId);
 
       // Trip the breaker the moment we hit the threshold — don't keep dialing the
       // rest of this batch into a pipeline we already know is failing.

@@ -88,6 +88,22 @@ export async function POST(request: Request) {
     | string
     | undefined;
 
+  // Inbound receptionist ("Mia — Reception"): the caller dialed us, so NO lead_id
+  // is passed and the CALLER (external_number) is the prospect. Detect it by the
+  // call direction, or by the reception agent id as a fallback when direction is
+  // absent. When true we create/resolve a lead in the Mia workspace below so the
+  // call is recorded + followed up exactly like an outbound demo.
+  const callDirection = String(phoneCall.direction ?? "").toLowerCase();
+  const inboundAgentId = process.env.ELEVENLABS_INBOUND_AGENT_ID;
+  const miaWorkspaceId = Number(process.env.MIA_WORKSPACE_ID);
+  const isInboundDemo =
+    !leadId &&
+    Number.isInteger(miaWorkspaceId) &&
+    miaWorkspaceId > 0 &&
+    !!toNumber &&
+    (callDirection === "inbound" ||
+      (!!inboundAgentId && agentId === inboundAgentId));
+
   const transcript: TranscriptTurn[] = ((evt.transcript ?? []) as Array<{
     role: string;
     message: string;
@@ -111,17 +127,27 @@ export async function POST(request: Request) {
   // Fetch the lead once: its timezone lets the classifier resolve relative
   // callback times into the prospect's local (US) hours; the other fields feed
   // the warm-lead emails below.
-  const { data: lead } = leadId
+  // `let` (not const): an inbound receptionist call has no leadId, so we resolve /
+  // create the lead from the caller's number further down and reassign this.
+  let { data: lead } = leadId
     ? await supabase
         .from("leads")
-        .select("name, business_name, email, phone, timezone, workspace_id")
+        .select("id, name, business_name, email, phone, timezone, workspace_id")
         .eq("id", leadId)
         .maybeSingle()
-    : { data: null };
+    : { data: null as
+        | { id: string; name: string | null; business_name: string | null; email: string | null; phone: string | null; timezone: string | null; workspace_id: number }
+        | null };
 
-  // The workspace the call belongs to (from its lead). Standalone test calls
-  // (no lead) fall back to Default.
-  const workspaceId = (lead?.workspace_id as number) ?? 1;
+  // The lead we actually operate on downstream — for outbound it's the passed
+  // leadId; for inbound it's the caller lead we resolve below.
+  let resolvedLeadId: string | undefined = leadId;
+
+  // The workspace the call belongs to. Inbound receptionist calls belong to the
+  // Mia workspace; outbound calls take it from their lead; test calls → Default.
+  const workspaceId = isInboundDemo
+    ? miaWorkspaceId
+    : ((lead?.workspace_id as number) ?? 1);
 
   // The campaign goal drives how the call is classified + followed up.
   const { data: wsSettings } = await supabase
@@ -158,9 +184,52 @@ export async function POST(request: Request) {
     goal,
   });
 
+  // Inbound: resolve the caller to a lead in the Mia workspace (keyed on their
+  // number). Reuse an existing lead if this caller is already known (don't clobber
+  // their stored name/email); otherwise create one from what Mia captured on the
+  // call. The downstream block then updates status + sends the follow-up email
+  // exactly as it does for an outbound demo.
+  if (isInboundDemo && toNumber) {
+    const callerName = dcValue("caller_name");
+    const callerEmail = dcValue("caller_email");
+    const callerBiz = dcValue("business_name");
+    const { data: found } = await supabase
+      .from("leads")
+      .select("id, name, business_name, email, phone, timezone, workspace_id")
+      .eq("workspace_id", workspaceId)
+      .eq("phone", toNumber)
+      .maybeSingle();
+    if (found) {
+      resolvedLeadId = found.id as string;
+      lead = found;
+    } else {
+      const { data: ins } = await supabase
+        .from("leads")
+        .insert({
+          workspace_id: workspaceId,
+          name: callerName || "Inbound caller",
+          business_name: callerBiz || "",
+          phone: toNumber,
+          email: callerEmail || "",
+          consent_source: "inbound_call",
+          last_called_at: startedAtIso,
+          attempts: 0,
+        })
+        .select("id, name, business_name, email, phone, timezone, workspace_id")
+        .maybeSingle();
+      if (ins) {
+        resolvedLeadId = ins.id as string;
+        lead = ins;
+      }
+    }
+    // Prefer the email captured on THIS call for the follow-up (the caller may have
+    // given a fresh one), falling back to whatever is on the resolved lead.
+    if (lead && callerEmail && !lead.email) lead.email = callerEmail;
+  }
+
   await supabase.from("calls").insert({
     workspace_id: workspaceId,
-    lead_id: leadId,
+    lead_id: resolvedLeadId,
     elevenlabs_conversation_id: conversationId,
     started_at: startedAtIso,
     duration_secs: durationSecs,
@@ -184,7 +253,7 @@ export async function POST(request: Request) {
     current_callback_speed: dcValue("current_callback_speed"),
   });
 
-  if (leadId) {
+  if (resolvedLeadId) {
     // Always record the link to this call's conversation on the lead, so every
     // interested/callback lead points at the exact call that qualified it.
     const patch: Record<string, unknown> = {
@@ -210,7 +279,7 @@ export async function POST(request: Request) {
       if (meetingCity) patch.meeting_city = meetingCity;
       if (statedIndustry) patch.industry = statedIndustry;
     }
-    await supabase.from("leads").update(patch).eq("id", leadId);
+    await supabase.from("leads").update(patch).eq("id", resolvedLeadId);
 
     // This call just ended → a demo line freed up. If it belongs to the Mia demo
     // workspace, drain the queue so the next waiting lead is dialed immediately.
