@@ -39,6 +39,7 @@ export function SettingsForm({
     goalType: settings.goalType,
     agentId: settings.agentId ?? "",
     callerNumberIds: settings.callerNumberIds ?? "",
+    bookingLink: settings.bookingLink ?? "",
   });
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -225,6 +226,28 @@ export function SettingsForm({
               />
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base font-semibold">Booking link</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Label htmlFor="bookingLink">Cal.com booking URL</Label>
+          <Input
+            id="bookingLink"
+            type="url"
+            value={form.bookingLink}
+            onChange={(e) => set("bookingLink", e.target.value)}
+            placeholder="https://cal.com/you/intro (blank = account default)"
+            className="font-mono text-sm"
+          />
+          <p className="text-xs text-muted-foreground">
+            The link Mia sends after a qualifying call so the prospect can book.
+            Each workspace has its own — connect it to your Google Calendar inside
+            Cal.com. Leave blank to use the account default.
+          </p>
         </CardContent>
       </Card>
 

@@ -34,6 +34,7 @@ const SAFE_SETTINGS: CampaignSettings = {
   goalType: "financing",
   agentId: null,
   callerNumberIds: null,
+  bookingLink: null,
 };
 
 type Row = Record<string, unknown>;
@@ -100,6 +101,7 @@ function mapSettings(r: Row): CampaignSettings {
     goalType: (r.goal_type as string) === "ai_meeting" ? "ai_meeting" : "financing",
     agentId: (r.elevenlabs_agent_id as string) ?? null,
     callerNumberIds: (r.caller_number_ids as string) ?? null,
+    bookingLink: (r.booking_link as string) ?? null,
   };
 }
 

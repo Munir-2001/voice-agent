@@ -21,6 +21,7 @@ export const campaignSettings: CampaignSettings = {
   goalType: "financing",
   agentId: null,
   callerNumberIds: null,
+  bookingLink: null,
 };
 
 export const leads: Lead[] = [

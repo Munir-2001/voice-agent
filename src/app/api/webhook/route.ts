@@ -296,6 +296,17 @@ export async function POST(request: Request) {
       }
     }
 
+    // Per-workspace Cal.com booking link (each account sets its own in Settings);
+    // falls back to the env BOOKING_LINK default. Used in the follow-up email so
+    // multi-tenant accounts each send THEIR own link, not one shared env value.
+    const { data: wsCfg } = await supabase
+      .from("campaign_settings")
+      .select("booking_link")
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+    const bookingLink =
+      (wsCfg?.booking_link as string)?.trim() || process.env.BOOKING_LINK || "";
+
     // Warm outcome → email the prospect and alert the team. Both best-effort;
     // email must never break the webhook. Reuses the lead fetched above.
     const qualifies =
@@ -313,11 +324,15 @@ export async function POST(request: Request) {
       if (demoEngaged && lead) {
         const email = (lead.email as string) ?? null;
         if (email) {
-          const r = await sendDemoFollowupEmail({
-            name: (lead.name as string) ?? "",
-            businessName: (lead.business_name as string) ?? "",
-            email,
-          });
+          const r = await sendDemoFollowupEmail(
+            {
+              name: (lead.name as string) ?? "",
+              businessName: (lead.business_name as string) ?? "",
+              email,
+            },
+            undefined,
+            bookingLink,
+          );
           if (!r.sent) console.error("demo follow-up email skipped:", r.reason);
         }
       }
@@ -335,7 +350,7 @@ export async function POST(request: Request) {
       if (email) {
         const r =
           goal === "ai_meeting"
-            ? await sendMeetingEmail({ name, businessName, email }, profile)
+            ? await sendMeetingEmail({ name, businessName, email }, profile, bookingLink)
             : await sendWelcomeEmail({ name, businessName, email }, profile);
         if (!r.sent) console.error("prospect email skipped:", r.reason);
       }

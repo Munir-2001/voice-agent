@@ -27,6 +27,11 @@ const PHNUM_LIST = z.union([
       "Comma-separated ElevenLabs phone-number ids (phnum_…)",
     ),
 ]);
+// Per-workspace booking URL (Cal.com etc.). Empty = fall back to env BOOKING_LINK.
+const BOOKING_LINK = z.union([
+  z.literal(""),
+  z.string().trim().url("Must be a valid URL (https://…)").max(500),
+]);
 
 const Body = z
   .object({
@@ -39,6 +44,7 @@ const Body = z
     goalType: z.enum(["financing", "ai_meeting"]),
     agentId: AGENT_ID.optional(),
     callerNumberIds: PHNUM_LIST.optional(),
+    bookingLink: BOOKING_LINK.optional(),
   })
   // Enforce legal US calling hours (TCPA 8am–9pm local) and a sane window.
   .refine((s) => toMin(s.windowStart) < toMin(s.windowEnd), {
@@ -84,6 +90,8 @@ export async function POST(request: Request) {
       // Empty string → null so the dialer falls back to the env default agent/numbers.
       elevenlabs_agent_id: s.agentId ? s.agentId : null,
       caller_number_ids: s.callerNumberIds ? s.callerNumberIds : null,
+      // Empty → null so the follow-up falls back to the env BOOKING_LINK default.
+      booking_link: s.bookingLink ? s.bookingLink : null,
     })
     .eq("workspace_id", workspaceId);
 

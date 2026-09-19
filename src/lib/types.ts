@@ -92,6 +92,7 @@ export interface CampaignSettings {
   goalType: "financing" | "ai_meeting"; // drives the value hook + classification
   agentId: string | null; // ElevenLabs agent_id (agent_…); null → env default
   callerNumberIds: string | null; // comma-separated phnum_ ids; null → env default
+  bookingLink: string | null; // per-workspace Cal.com booking URL; null → env BOOKING_LINK default
 }
 
 // A named lead list within a workspace. The dialer calls the workspace's active

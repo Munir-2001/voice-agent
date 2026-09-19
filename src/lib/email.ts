@@ -373,6 +373,7 @@ interface MeetingLead {
 export async function sendMeetingEmail(
   lead: MeetingLead,
   profile: EmailProfile = emailProfile("ai_meeting"),
+  bookingLink: string = process.env.BOOKING_LINK || "",
 ): Promise<{ sent: boolean; reason?: string }> {
   if (!isEmailConfigured(profile)) return { sent: false, reason: "email not configured" };
   if (!lead.email || !looksLikeEmail(lead.email)) {
@@ -380,7 +381,6 @@ export async function sendMeetingEmail(
   }
 
   const first = lead.name.trim().split(/\s+/)[0] || "there";
-  const bookingLink = process.env.BOOKING_LINK || "";
   const fromAddr = profile.user;
   const replyTo = profile.replyTo;
 
@@ -444,6 +444,7 @@ NextGen AI`;
 export async function sendDemoFollowupEmail(
   lead: { name: string; businessName?: string; email: string | null },
   profile: EmailProfile = demoEmailProfile(),
+  bookingLink: string = process.env.BOOKING_LINK || "",
 ): Promise<{ sent: boolean; reason?: string }> {
   if (!isEmailConfigured(profile)) return { sent: false, reason: "email not configured" };
   if (!lead.email || !looksLikeEmail(lead.email)) {
@@ -452,7 +453,6 @@ export async function sendDemoFollowupEmail(
 
   const first = lead.name.trim().split(/\s+/)[0] || "there";
   const biz = lead.businessName || "your business";
-  const bookingLink = process.env.BOOKING_LINK || "";
 
   const bookLine = bookingLink
     ? `If you want this running on your own leads, grab 15 minutes with me here: ${bookingLink}`
