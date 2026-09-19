@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -126,7 +127,16 @@ function CampaignRow({ campaign }: { campaign: CampaignSummary }) {
 
   return (
     <TableRow>
-      <TableCell className="font-medium">{campaign.name}</TableCell>
+      <TableCell className="font-medium">
+        <div className="flex items-center gap-2">
+          {campaign.name}
+          {campaign.autoEnroll && (
+            <Badge variant="secondary" className="font-normal">
+              Auto-enroll
+            </Badge>
+          )}
+        </div>
+      </TableCell>
       <TableCell>
         <Badge variant={STATUS_VARIANT[campaign.status] ?? "outline"}>
           {campaign.status}
@@ -183,6 +193,7 @@ function CampaignBuilder({
   const [dailyCap, setDailyCap] = useState("50");
   const [windowStart, setWindowStart] = useState("09:00");
   const [windowEnd, setWindowEnd] = useState("17:00");
+  const [autoEnroll, setAutoEnroll] = useState(false);
 
   const chosenList = lists.find((l) => String(l.id) === listId);
   const chosenSequence = sequences.find((s) => String(s.id) === sequenceId);
@@ -196,6 +207,7 @@ function CampaignBuilder({
     setDailyCap("50");
     setWindowStart("09:00");
     setWindowEnd("17:00");
+    setAutoEnroll(false);
   }
 
   const canNext =
@@ -215,6 +227,7 @@ function CampaignBuilder({
           dailyCap: Number(dailyCap) || 50,
           windowStart,
           windowEnd,
+          autoEnroll,
         }),
       });
       const created = await createRes.json().catch(() => ({}));
@@ -408,6 +421,21 @@ function CampaignBuilder({
               <p className="text-xs text-muted-foreground">
                 Sends run weekdays only, in America/New_York, within this window.
               </p>
+              <div className="flex items-start gap-3 rounded-md border p-3">
+                <Switch
+                  id="auto-enroll"
+                  checked={autoEnroll}
+                  onCheckedChange={setAutoEnroll}
+                />
+                <div className="space-y-0.5">
+                  <Label htmlFor="auto-enroll">Auto-enroll new demo signups</Label>
+                  <p className="text-xs text-muted-foreground">
+                    New instant-demo form submissions with an email join this
+                    campaign automatically. Only one campaign can hold this —
+                    turning it on here turns it off elsewhere.
+                  </p>
+                </div>
+              </div>
             </div>
           )}
         </div>

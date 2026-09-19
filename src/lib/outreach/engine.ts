@@ -162,6 +162,33 @@ export async function enrollLead(
   return { enrolled: true };
 }
 
+/**
+ * Auto-enroll a new inbound lead into whichever ACTIVE campaign in its
+ * workspace is flagged `auto_enroll_inbound` (set via the campaign UI toggle —
+ * no env config). Enrolls into every flagged campaign found (the UI keeps it to
+ * one per workspace). Best-effort + never throws.
+ */
+export async function autoEnrollInboundLead(
+  workspaceId: number,
+  leadId: string,
+): Promise<{ enrolled: number }> {
+  const supabase = createServiceClient();
+  const { data: campaigns } = await supabase
+    .from("email_campaigns")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .eq("status", "active")
+    .eq("auto_enroll_inbound", true);
+  if (!campaigns || campaigns.length === 0) return { enrolled: 0 };
+
+  let enrolled = 0;
+  for (const c of campaigns) {
+    const res = await enrollLead(c.id as number, leadId);
+    if (res.enrolled) enrolled++;
+  }
+  return { enrolled };
+}
+
 /** Run one send tick for every active campaign. */
 export async function runEmailTick(): Promise<EmailTickResult[]> {
   const supabase = createServiceClient();

@@ -44,6 +44,7 @@ export interface CampaignSummary {
   dailyCap: number;
   windowStart: string;
   windowEnd: string;
+  autoEnroll: boolean;
   createdAt: string;
   enrolled: number;
   sent: number;
@@ -120,7 +121,7 @@ export async function listCampaigns(): Promise<CampaignSummary[]> {
   const { data } = await sb
     .from("email_campaigns")
     .select(
-      "id, name, status, sequence_id, list_id, from_identity, daily_cap, window_start, window_end, created_at, " +
+      "id, name, status, sequence_id, list_id, from_identity, daily_cap, window_start, window_end, auto_enroll_inbound, created_at, " +
         "email_sequences(name), lead_lists(name)",
     )
     .eq("workspace_id", ws)
@@ -158,6 +159,7 @@ export async function listCampaigns(): Promise<CampaignSummary[]> {
       dailyCap: (c.daily_cap as number) ?? 50,
       windowStart: (c.window_start as string) ?? "09:00",
       windowEnd: (c.window_end as string) ?? "17:00",
+      autoEnroll: Boolean(c.auto_enroll_inbound),
       createdAt: (c.created_at as string) ?? "",
       enrolled: enrolledRes.count ?? 0,
       sent: sentRes.count ?? 0,

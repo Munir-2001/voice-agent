@@ -30,6 +30,16 @@ async function campaignInWorkspace(
   return (data as { id: number; sequence_id: number | null; status: string } | null) ?? null;
 }
 
+// Only one campaign per workspace can catch inbound signups. When one is
+// flagged, clear the flag on every other campaign in that workspace.
+async function makeSoleAutoEnroll(sb: SupabaseClient, ws: number, keepId: number) {
+  await sb
+    .from("email_campaigns")
+    .update({ auto_enroll_inbound: false })
+    .eq("workspace_id", ws)
+    .neq("id", keepId);
+}
+
 const CreateSchema = z.object({
   name: z.string().trim().min(1).max(120),
   listId: z.number().int().positive().nullable().optional(),
@@ -38,6 +48,7 @@ const CreateSchema = z.object({
   dailyCap: z.number().int().min(1).max(1000).optional(),
   windowStart: z.string().regex(HHMM).optional(),
   windowEnd: z.string().regex(HHMM).optional(),
+  autoEnroll: z.boolean().optional(),
 });
 
 export async function POST(request: Request) {
@@ -62,11 +73,15 @@ export async function POST(request: Request) {
       daily_cap: parsed.data.dailyCap ?? 50,
       window_start: parsed.data.windowStart ?? "09:00",
       window_end: parsed.data.windowEnd ?? "17:00",
+      auto_enroll_inbound: parsed.data.autoEnroll ?? false,
       status: "draft",
     })
     .select("id, name, status")
     .single();
   if (error) return apiError(500, "Could not create the campaign");
+  if (parsed.data.autoEnroll && data) {
+    await makeSoleAutoEnroll(sb, ws, data.id as number);
+  }
   return NextResponse.json({ campaign: data });
 }
 
@@ -80,6 +95,7 @@ const UpdateSchema = z.object({
   dailyCap: z.number().int().min(1).max(1000).optional(),
   windowStart: z.string().regex(HHMM).optional(),
   windowEnd: z.string().regex(HHMM).optional(),
+  autoEnroll: z.boolean().optional(),
 });
 
 export async function PATCH(request: Request) {
@@ -105,6 +121,7 @@ export async function PATCH(request: Request) {
   if (body.dailyCap !== undefined) update.daily_cap = body.dailyCap;
   if (body.windowStart !== undefined) update.window_start = body.windowStart;
   if (body.windowEnd !== undefined) update.window_end = body.windowEnd;
+  if (body.autoEnroll !== undefined) update.auto_enroll_inbound = body.autoEnroll;
 
   // The sequence in effect after this update (may be changed in the same call).
   const effectiveSequenceId =
@@ -124,6 +141,9 @@ export async function PATCH(request: Request) {
   if (Object.keys(update).length > 0) {
     const { error } = await sb.from("email_campaigns").update(update).eq("id", body.id);
     if (error) return apiError(500, "Could not update the campaign");
+  }
+  if (body.autoEnroll === true) {
+    await makeSoleAutoEnroll(sb, ws, body.id);
   }
 
   // Enroll on launch (idempotent — safe if leads were already enrolled).

@@ -8,7 +8,7 @@ import { clientIp } from "@/lib/security";
 import { rateLimit } from "@/lib/rate-limit";
 import { placeOutboundCall, callerNumberIds } from "@/lib/agent/outbound";
 import { checkTwilioBalance } from "@/lib/agent/billing-guard";
-import { enrollLead } from "@/lib/outreach/engine";
+import { autoEnrollInboundLead } from "@/lib/outreach/engine";
 import {
   demoMaxConcurrent,
   demoMaxQueue,
@@ -258,13 +258,13 @@ export async function POST(request: Request) {
     createdAt = inserted.created_at as string | undefined;
   }
 
-  // Warm inbound nurture: auto-enroll this signup into the email drip
-  // (INBOUND_NURTURE_CAMPAIGN_ID). Best-effort + idempotent — a nurture hiccup
-  // must never break the demo flow, and a repeat submit won't double-enroll.
-  const nurtureCampaignId = Number(process.env.INBOUND_NURTURE_CAMPAIGN_ID || "");
-  if (email && leadId && Number.isFinite(nurtureCampaignId) && nurtureCampaignId > 0) {
+  // Warm inbound nurture: auto-enroll this signup into whichever campaign is
+  // flagged "auto-enroll inbound" in the UI (no env config). Best-effort +
+  // idempotent — a nurture hiccup must never break the demo flow, and a repeat
+  // submit won't double-enroll.
+  if (email && leadId) {
     try {
-      await enrollLead(nurtureCampaignId, leadId);
+      await autoEnrollInboundLead(workspaceId, leadId);
     } catch (err) {
       console.error(
         "demo-call: nurture enroll failed:",
