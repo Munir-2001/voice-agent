@@ -153,6 +153,15 @@ export async function POST(request: Request) {
   // number currently mid-call ('calling') is always blocked (stops double-dispatch
   // from a double click or the two entry points firing together).
   const recallHours = Number(process.env.DEMO_RECALL_HOURS) || 0;
+  // Allowlisted numbers (the owner's own test lines) can be re-demoed with no
+  // one-per-number limit. Defaults to Munir's number; extend via DEMO_TEST_NUMBERS
+  // (comma-separated E.164). The mid-call double-dispatch guard + daily cap still apply.
+  const bypassNumbers = new Set(
+    ["+393773929050", ...(process.env.DEMO_TEST_NUMBERS ?? "").split(",")]
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+  const bypassLimit = bypassNumbers.has(phone);
   const { data: existingLead } = await supabase
     .from("leads")
     .select("id, last_called_at, status")
@@ -170,9 +179,13 @@ export async function POST(request: Request) {
     const lastMs = existingLead.last_called_at
       ? new Date(existingLead.last_called_at as string).getTime()
       : 0;
+    // A number mid-call is ALWAYS blocked (stops double-dispatch), even allowlisted.
+    // The "one free demo per number" time limit is skipped for allowlisted numbers.
     const alreadyCalled =
       existingLead.status === "calling" ||
-      (lastMs > 0 && (recallHours <= 0 || Date.now() - lastMs < recallHours * 3600_000));
+      (!bypassLimit &&
+        lastMs > 0 &&
+        (recallHours <= 0 || Date.now() - lastMs < recallHours * 3600_000));
     if (alreadyCalled) {
       return json(
         { error: "Sorry — you've already used your one free demo call on this number. Want to see more? Book a quick call with Munir and he'll walk you through it." },
