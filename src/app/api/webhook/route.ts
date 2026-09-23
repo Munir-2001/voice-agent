@@ -265,7 +265,12 @@ export async function POST(request: Request) {
   // Enrich the dialer's provisional placement row when it exists; otherwise insert
   // (inbound calls + any call whose placement row wasn't written have none).
   if (existing) {
-    await supabase.from("calls").update(callRow).eq("id", existing.id);
+    // Never downgrade the placement row's lead link: the dialer already stored the
+    // correct lead_id, so if this webhook couldn't resolve one, keep the existing
+    // value rather than nulling it.
+    const patch: Record<string, unknown> = { ...callRow };
+    if (!resolvedLeadId) delete patch.lead_id;
+    await supabase.from("calls").update(patch).eq("id", existing.id);
   } else {
     await supabase.from("calls").insert(callRow);
   }
