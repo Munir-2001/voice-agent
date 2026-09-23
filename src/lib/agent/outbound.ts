@@ -7,6 +7,7 @@ import {
   playbookForIndustry,
   automationHookForIndustry,
 } from "@/lib/agent/industry-playbooks";
+import { createServiceClient } from "@/lib/supabase/server";
 
 export type CampaignGoal = "financing" | "ai_meeting";
 
@@ -89,6 +90,7 @@ export async function placeOutboundCall(
   agentPhoneNumberId: string,
   agentId?: string, // per-campaign agent; falls back to the env default
   goal: CampaignGoal = "financing", // which campaign — drives the value hook
+  workspaceId?: number, // when set, records the dial in `calls` (see below)
 ) {
   const { brief } = researchLead({
     name: lead.name,
@@ -171,6 +173,33 @@ export async function placeOutboundCall(
   };
   if (data.success === false) {
     throw new Error(`Call rejected: ${data.message ?? "unknown error"}`);
+  }
+
+  // Record the dial immediately so EVERY outbound placement is counted — not just
+  // the ones that connect. A no-answer never fires a post-call webhook, so without
+  // this it would be invisible in the dashboard/call-log despite being placed (and
+  // billed for the ring). The post-call webhook later UPDATEs this same row (keyed
+  // on conversation_id) with transcript/outcome when the call connects; until then
+  // it stays a provisional 'no_answer'. Only runs when a workspaceId is given
+  // (real campaign/demo dials) — standalone test calls pass none. Wrapped in
+  // try/catch so a logging hiccup can never fail a call that already went out.
+  const conversationId = data.conversation_id;
+  if (conversationId && workspaceId) {
+    try {
+      await createServiceClient()
+        .from("calls")
+        .insert({
+          workspace_id: workspaceId,
+          lead_id: lead.id || null, // "" for standalone test calls → null
+          elevenlabs_conversation_id: conversationId,
+          started_at: new Date().toISOString(),
+          outcome: "no_answer", // provisional; webhook upgrades it on connect
+          number_used: agentPhoneNumberId,
+          external_number: lead.phone,
+        });
+    } catch (e) {
+      console.error("placeOutboundCall: dial-row insert failed:", e);
+    }
   }
   return data;
 }

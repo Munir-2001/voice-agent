@@ -310,6 +310,8 @@ export async function POST(request: Request) {
       { id: leadId, name, business_name: company || "your business", industry: "", email, phone },
       callerNumberId,
       agentId,
+      "financing", // keep the current default (industry_hook stays empty for demos)
+      workspaceId, // record the demo dial in `calls` too
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

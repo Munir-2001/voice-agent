@@ -215,6 +215,8 @@ export async function drainDemoQueue(
         },
         callerNumberId,
         agentId,
+        "financing", // keep the current default (industry_hook stays empty for demos)
+        workspaceId, // record the demo dial in `calls` too
       );
       inFlight++;
       placedToday++;

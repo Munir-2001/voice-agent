@@ -366,34 +366,19 @@ export async function runDialTick(
     if (!claimed || claimed.length === 0) continue; // another tick already took it
 
     try {
-      const result = await placeOutboundCall(
+      // Passing workspaceId makes placeOutboundCall record the dial in `calls`
+      // immediately (incl. no-answers, which never fire a post-call webhook) — the
+      // webhook later enriches that same row. Centralized there so every outbound
+      // path (scheduler, Call now, demo) counts a dial the same way.
+      await placeOutboundCall(
         lead,
         agentPhoneNumberId,
         settings.elevenlabs_agent_id ?? undefined,
         settings.goal_type === "ai_meeting" ? "ai_meeting" : "financing",
+        workspaceId,
       );
       placed.push(lead.id);
       streak = Math.max(0, streak - 1); // a healthy call eases the breaker down
-
-      // Record the dial immediately, so EVERY placement shows up as a "dial" in the
-      // dashboard/call-log — not just calls that connect. A no-answer never fires a
-      // post-call webhook, so without this it would be invisible even though it was
-      // placed (and billed for the ring). The post-call webhook later UPDATES this
-      // same row (keyed on conversation_id) with the transcript/outcome when the
-      // call connects; until then it stays a provisional 'no_answer'. Guarded on
-      // conversation_id so a malformed response can't create an unkeyed duplicate.
-      const conversationId = result?.conversation_id;
-      if (conversationId) {
-        await supabase.from("calls").insert({
-          workspace_id: workspaceId,
-          lead_id: lead.id,
-          elevenlabs_conversation_id: conversationId,
-          started_at: now.toISOString(),
-          outcome: "no_answer", // provisional; webhook upgrades it if the call connects
-          number_used: agentPhoneNumberId,
-          external_number: lead.phone, // so the call log shows who we dialed on no-answers
-        });
-      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`dial-tick: call failed for lead ${lead.id}:`, message);
