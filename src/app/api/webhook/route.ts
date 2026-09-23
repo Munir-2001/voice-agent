@@ -116,13 +116,23 @@ export async function POST(request: Request) {
 
   const supabase = createServiceClient();
 
-  // Idempotency: skip if we already stored this conversation.
+  // Idempotency + dial-row reconciliation. The dialer writes a provisional `calls`
+  // row at placement time so no-answers still count as dials. A matching row here
+  // is EITHER that placeholder (enrich it) OR a real re-delivery of this webhook
+  // (skip it). We distinguish on transcript LENGTH: the `transcript` column
+  // defaults to `[]` (an empty array — which is truthy!), so the placeholder has a
+  // zero-length transcript while a processed conversation has ≥1 turn. Only skip
+  // when there's real content — otherwise a re-delivery would re-send the
+  // follow-up email. (Empty-transcript calls — no-answer/voicemail — never send an
+  // email, so re-processing one is harmless.)
   const { data: existing } = await supabase
     .from("calls")
-    .select("id")
+    .select("id, transcript")
     .eq("elevenlabs_conversation_id", conversationId)
     .maybeSingle();
-  if (existing) return NextResponse.json({ ok: true, deduped: true });
+  const alreadyProcessed =
+    Array.isArray(existing?.transcript) && existing.transcript.length > 0;
+  if (alreadyProcessed) return NextResponse.json({ ok: true, deduped: true });
 
   // Fetch the lead once: its timezone lets the classifier resolve relative
   // callback times into the prospect's local (US) hours; the other fields feed
@@ -227,7 +237,7 @@ export async function POST(request: Request) {
     if (lead && callerEmail && !lead.email) lead.email = callerEmail;
   }
 
-  await supabase.from("calls").insert({
+  const callRow = {
     workspace_id: workspaceId,
     lead_id: resolvedLeadId,
     elevenlabs_conversation_id: conversationId,
@@ -251,7 +261,14 @@ export async function POST(request: Request) {
     demo_outcome: dcValue("outcome"),
     gets_inbound_leads: dcValue("gets_inbound_leads"),
     current_callback_speed: dcValue("current_callback_speed"),
-  });
+  };
+  // Enrich the dialer's provisional placement row when it exists; otherwise insert
+  // (inbound calls + any call whose placement row wasn't written have none).
+  if (existing) {
+    await supabase.from("calls").update(callRow).eq("id", existing.id);
+  } else {
+    await supabase.from("calls").insert(callRow);
+  }
 
   if (resolvedLeadId) {
     // Always record the link to this call's conversation on the lead, so every

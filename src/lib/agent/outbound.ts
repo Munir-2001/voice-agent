@@ -160,9 +160,14 @@ export async function placeOutboundCall(
   }
   // ElevenLabs returns HTTP 200 even when the underlying Twilio call is rejected
   // (e.g. trial account, geo permissions) — the real status is in `success`.
+  // `conversation_id` is the key we use to reconcile the dial-time `calls` row
+  // (written by the dialer for EVERY placement, incl. no-answers) with the
+  // post-call webhook that later enriches it.
   const data = (await res.json().catch(() => ({}))) as {
     success?: boolean;
     message?: string;
+    conversation_id?: string;
+    callSid?: string;
   };
   if (data.success === false) {
     throw new Error(`Call rejected: ${data.message ?? "unknown error"}`);
