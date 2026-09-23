@@ -174,12 +174,20 @@ export async function runDialTick(
   const remainingCap = settings.daily_cap - placedToday;
   if (remainingCap <= 0) return { workspaceId, skipped: "daily cap reached" };
 
-  // Even-spread pacing (scheduled ticks only): spread `daily_cap` calls evenly
-  // across the window. gap = window-minutes / daily-cap; place only if the most
-  // recent placement today was at least `gap` ago. A manual "Call now" bypasses.
+  // Pacing (scheduled ticks only): place a call only if the most recent placement
+  // today was at least `gap` ago. Two modes:
+  //   • Fixed cooldown — if `min_call_gap_minutes` is set (>0), use it directly:
+  //     activate → call → wait N min → call → … (daily_cap stays the hard ceiling).
+  //   • Even-spread — otherwise, spread `daily_cap` evenly across the window
+  //     (gap = window-minutes / daily-cap).
+  // A manual "Call now" bypasses pacing entirely.
   if (!manual) {
     const windowMinutes = Math.max(1, (endHour - startHour) * 60);
-    const gapMs = (windowMinutes / settings.daily_cap) * 60_000;
+    const gapMinutes =
+      settings.min_call_gap_minutes && settings.min_call_gap_minutes > 0
+        ? settings.min_call_gap_minutes
+        : windowMinutes / settings.daily_cap;
+    const gapMs = gapMinutes * 60_000;
     const { data: recent } = await supabase
       .from("leads")
       .select("last_called_at")

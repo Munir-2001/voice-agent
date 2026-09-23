@@ -142,6 +142,15 @@ export async function placeOutboundCall(
         agent_phone_number_id: agentPhoneNumberId,
         to_number: lead.phone,
         conversation_initiation_client_data: { dynamic_variables },
+        // Carrier-level Twilio answering-machine detection. This runs async and
+        // does NOT delay the agent (ElevenLabs starts talking on answer either
+        // way) — it's a fast machine/human verdict that backs up the LLM
+        // `voicemail_detection` system tool enabled on the agents, and gives the
+        // post-call webhook a clean signal to mark voicemail outcomes. `enable`
+        // = immediate verdict (best for cold agents that hang up on a machine).
+        telephony_call_config: {
+          twilio_machine_detection: { mode: "enable" },
+        },
       }),
     },
   );
